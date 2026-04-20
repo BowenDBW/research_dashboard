@@ -2,7 +2,7 @@
 
 ## 页面概述
 
-主页是用户进入应用后的首屏，包含三个核心区域：左侧可折叠菜单栏（爬虫状态 + 历史对话 + 设置入口）、中央 AI 对话/搜索区域、右侧常驻工具栏。中央区域通过 `Tabs` 组件实现三种模式切换：AI 对话、Paper Search、文章逐章总结。
+主页是用户进入应用后的首屏，包含三个核心区域：左侧可折叠菜单栏（爬虫状态 + 历史对话 + 设置入口）、中央 AI 对话/搜索区域、右侧常驻工具栏。中央区域通过 `Tabs` 组件实现三种模式切换：AI 对话、文章检索、文章逐章总结。
 
 ## 布局结构
 
@@ -55,7 +55,7 @@
 | `Stack` | 对话消息垂直排列 |
 | `Paper` | 对话消息气泡容器 |
 | `Skeleton` | AI 回复加载占位 |
-| `DatePicker` (来自 @mui/x-date-pickers) | Paper Search 起止时间选择 |
+| `DatePicker` (来自 @mui/x-date-pickers) | 文章检索 起止时间选择 |
 | `Autocomplete` | 文章标题输入 + 下拉候选 |
 | `CircularProgress` | AI 思考中进度指示 |
 | `Tooltip` | 按钮悬浮提示 |
@@ -78,7 +78,7 @@
 - 发送后调用 `invoke('chat_send', { message, sessionId })` 与 Tauri 后端通信，后端将请求转发至大模型（云端或本地）。
 - AI 回复流式显示：后端通过 Tauri Event `chat:stream` 推送 token，前端逐步追加到消息内容。
 
-### 中央内容区 — Paper Search 模式
+### 中央内容区 — 文章检索 模式
 
 - 切换到该 Tab 后，输入区上方显示 `DatePicker` 起止时间选择（精确到天）。
 - 用户输入搜索需求后，发送至大模型，大模型返回匹配论文列表。

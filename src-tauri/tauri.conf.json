@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "research_dashboard",
+  "productName": "Research Dashboard",
   "version": "0.1.0",
   "identifier": "org.cityu.dwb",
   "build": {
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "research_dashboard",
+        "title": "Research Dashboard",
         "width": 800,
         "height": 600
       }
