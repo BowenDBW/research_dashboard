@@ -20,15 +20,28 @@ export const ArticleCard = ({ article }: ArticleCardProps) => {
       <CardContent sx={{ py: 1.5, px: 2, '&:last-child': { pb: 1.5 } }}>
         {/* Title row with AI button */}
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.5 }}>
-          <Typography variant="subtitle2" sx={{ fontWeight: 600 }} noWrap>
-            {article.title}
-          </Typography>
+          <Tooltip title={article.title} arrow enterDelay={500}>
+            <Typography
+              variant="subtitle2"
+              sx={{
+                fontWeight: 600,
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                flexShrink: 1,
+                minWidth: 0,
+                cursor: 'default',
+              }}
+            >
+              {article.title}
+            </Typography>
+          </Tooltip>
           <Tooltip title="AI 总结">
             <IconButton
               size="small"
               onClick={handleAiSummary}
               color="secondary"
-              sx={{ p: 0, '&:hover': { bgcolor: 'transparent' } }}
+              sx={{ p: 0, '&:hover': { bgcolor: 'transparent' }, flexShrink: 0 }}
             >
               <AutoAwesomeIcon sx={{ fontSize: 16 }} />
               <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
@@ -54,7 +67,7 @@ export const ArticleCard = ({ article }: ArticleCardProps) => {
               <Chip key={domain} label={domain} size="small" variant="outlined" sx={{ height: 20, fontSize: '0.65rem' }} />
             ))}
           </Box>
-          <ArticleActions article={article} isFavorited={article.isFavorited} compact />
+          <ArticleActions article={article} isFavorited={article.isFavorited} />
         </Box>
       </CardContent>
     </Card>

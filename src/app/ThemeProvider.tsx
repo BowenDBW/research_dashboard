@@ -1,4 +1,4 @@
-import { createContext, useState, useContext, ReactNode } from 'react';
+import { createContext, useState, useContext, ReactNode, useEffect } from 'react';
 import {
   createTheme,
   ThemeProvider as MuiThemeProvider,
@@ -6,17 +6,31 @@ import {
   PaletteMode,
 } from '@mui/material';
 
+export type ThemePreference = 'system' | 'light' | 'dark';
+
 interface ThemeContextType {
   mode: PaletteMode;
+  preference: ThemePreference;
+  setPreference: (preference: ThemePreference) => void;
   toggleMode: () => void;
 }
 
 const ThemeContext = createContext<ThemeContextType>({
   mode: 'light',
+  preference: 'system',
+  setPreference: () => {},
   toggleMode: () => {},
 });
 
 export const useThemeMode = () => useContext(ThemeContext);
+
+// 获取系统主题偏好
+const getSystemPreference = (): PaletteMode => {
+  if (typeof window !== 'undefined' && window.matchMedia) {
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  }
+  return 'light';
+};
 
 const getDesignTokens = (mode: PaletteMode) => ({
   palette: {
@@ -100,16 +114,55 @@ const getDesignTokens = (mode: PaletteMode) => ({
 });
 
 export const ThemeProvider = ({ children }: { children: ReactNode }) => {
-  const [mode, setMode] = useState<PaletteMode>('light');
+  // 从 localStorage 读取偏好设置
+  const [preference, setPreferenceState] = useState<ThemePreference>(() => {
+    const saved = localStorage.getItem('themePreference');
+    return (saved as ThemePreference) || 'system';
+  });
 
+  // 计算实际的主题模式
+  const [mode, setMode] = useState<PaletteMode>(() => {
+    const saved = localStorage.getItem('themePreference') as ThemePreference;
+    if (saved === 'light' || saved === 'dark') {
+      return saved;
+    }
+    return getSystemPreference();
+  });
+
+  // 监听系统主题变化
+  useEffect(() => {
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    const handleChange = () => {
+      if (preference === 'system') {
+        setMode(getSystemPreference());
+      }
+    };
+    mediaQuery.addEventListener('change', handleChange);
+    return () => mediaQuery.removeEventListener('change', handleChange);
+  }, [preference]);
+
+  // 设置偏好并保存到 localStorage
+  const setPreference = (newPreference: ThemePreference) => {
+    setPreferenceState(newPreference);
+    localStorage.setItem('themePreference', newPreference);
+
+    if (newPreference === 'system') {
+      setMode(getSystemPreference());
+    } else {
+      setMode(newPreference);
+    }
+  };
+
+  // 切换主题（用于快速切换按钮）
   const toggleMode = () => {
-    setMode((prev) => (prev === 'light' ? 'dark' : 'light'));
+    const newMode = mode === 'light' ? 'dark' : 'light';
+    setPreference(newMode);
   };
 
   const theme = createTheme(getDesignTokens(mode));
 
   return (
-    <ThemeContext.Provider value={{ mode, toggleMode }}>
+    <ThemeContext.Provider value={{ mode, preference, setPreference, toggleMode }}>
       <MuiThemeProvider theme={theme}>
         <CssBaseline />
         {children}

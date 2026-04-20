@@ -3,8 +3,8 @@ import { AppShell } from '../components/layout/AppShell';
 import HomePage from '../pages/HomePage';
 import ArticleListPage from '../pages/ArticleListPage';
 import FavoritesPage from '../pages/FavoritesPage';
-import SettingsPage from '../pages/SettingsPage';
 import HistoryPage from '../pages/HistoryPage';
+import DailyPage from '../pages/DailyPage';
 
 const router = createHashRouter([
   {
@@ -15,8 +15,8 @@ const router = createHashRouter([
       { path: 'articles', element: <ArticleListPage /> },
       { path: 'favorites', element: <FavoritesPage /> },
       { path: 'favorites/:folderId', element: <FavoritesPage /> },
-      { path: 'settings', element: <SettingsPage /> },
       { path: 'history', element: <HistoryPage /> },
+      { path: 'daily', element: <DailyPage /> },
     ],
   },
 ]);

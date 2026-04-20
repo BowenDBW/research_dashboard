@@ -8,7 +8,6 @@ import {
   IconButton,
   Container,
   Paper,
-  Grid,
   TextField,
   Chip,
   Pagination,
@@ -19,6 +18,7 @@ import {
   Skeleton,
   FormControlLabel,
   Switch,
+  Tooltip,
 } from '@mui/material';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
@@ -54,6 +54,7 @@ const ArticleListPage = () => {
   const [startDate, setStartDate] = useState<dayjs.Dayjs | null>(null);
   const [endDate, setEndDate] = useState<dayjs.Dayjs | null>(null);
   const [showArxivOnly, setShowArxivOnly] = useState(false);
+  const [showSubscribedOnly, setShowSubscribedOnly] = useState(false);
 
   useEffect(() => {
     fetchArticles();
@@ -82,58 +83,83 @@ const ArticleListPage = () => {
       <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
         {/* Header */}
         <AppBar position="static" color="transparent" elevation={0} sx={{ bgcolor: 'background.paper' }}>
-          <Toolbar>
-            <IconButton onClick={() => navigate('/')}>
+          <Toolbar sx={{ gap: 1.5, minHeight: 56 }}>
+            <IconButton onClick={() => navigate('/')} size="small">
               <ArrowBackIcon />
             </IconButton>
-            <Typography variant="h6" sx={{ ml: 2 }}>
+            <Typography variant="h6" noWrap>
               文章列表
             </Typography>
+            <Box sx={{ flex: 1 }} />
+            <Tooltip title="显示 arXiv 文章" arrow>
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={showArxivOnly}
+                    onChange={(e) => {
+                      setShowArxivOnly(e.target.checked);
+                      if (!e.target.checked) {
+                        setLocalDomains([]);
+                      }
+                    }}
+                    size="small"
+                  />
+                }
+                label={<Typography variant="body2" noWrap>arXiv</Typography>}
+                sx={{ mr: 0.5 }}
+              />
+            </Tooltip>
+            <Tooltip title="仅显示订阅文章" arrow>
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={showSubscribedOnly}
+                    onChange={(e) => setShowSubscribedOnly(e.target.checked)}
+                    size="small"
+                  />
+                }
+                label={<Typography variant="body2" noWrap>订阅</Typography>}
+                sx={{ mr: 1 }}
+              />
+            </Tooltip>
+            <TextField
+              size="small"
+              placeholder="搜索..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleFilterChange()}
+              sx={{ minWidth: 200, flex: '0 1 350px' }}
+              slotProps={{
+                input: {
+                  startAdornment: <SearchIcon color="action" sx={{ mr: 1, fontSize: 18 }} />,
+                },
+              }}
+            />
           </Toolbar>
         </AppBar>
 
-        {/* Content */}
-        <Container maxWidth="lg" sx={{ flex: 1, py: 2, overflow: 'auto' }}>
-          {/* Filter Bar */}
-          <Paper sx={{ p: 2, mb: 2 }}>
-            <Grid container spacing={2} alignItems="center">
-              {/* Search */}
-              <Grid size={{ xs: 12, md: 4 }}>
-                <TextField
-                  fullWidth
-                  size="small"
-                  placeholder="搜索标题、作者或摘要..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleFilterChange()}
-                  slotProps={{
-                    input: {
-                      startAdornment: <SearchIcon color="action" sx={{ mr: 1, fontSize: 20 }} />,
-                    },
-                  }}
-                />
-              </Grid>
-
-              {/* Date Range */}
-              <Grid size={{ xs: 6, md: 2 }}>
+        {/* Fixed Filter Bar */}
+        <Paper sx={{ px: 3, py: 1.5, borderBottom: 1, borderColor: 'divider', flexShrink: 0, bgcolor: 'background.paper', zIndex: 2, borderRadius: 0 }}>
+          <Box sx={{ maxWidth: 'lg', mx: 'auto', display: 'flex', flexDirection: 'column', gap: 1 }}>
+            {/* 第一行：开始日期 | 结束日期 | 会议/期刊 */}
+            <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+              <Box sx={{ width: '25%' }}>
                 <DatePicker
                   label="开始日期"
                   value={startDate}
                   onChange={(newValue) => setStartDate(newValue)}
                   slotProps={{ textField: { size: 'small', fullWidth: true } }}
                 />
-              </Grid>
-              <Grid size={{ xs: 6, md: 2 }}>
+              </Box>
+              <Box sx={{ width: '25%' }}>
                 <DatePicker
                   label="结束日期"
                   value={endDate}
                   onChange={(newValue) => setEndDate(newValue)}
                   slotProps={{ textField: { size: 'small', fullWidth: true } }}
                 />
-              </Grid>
-
-              {/* Source (Conference/Journal) */}
-              <Grid size={{ xs: 12, md: 4 }}>
+              </Box>
+              <Box sx={{ width: '50%' }}>
                 <FormControl size="small" fullWidth>
                   <InputLabel>会议/期刊</InputLabel>
                   <Select
@@ -157,93 +183,109 @@ const ArticleListPage = () => {
                     <MenuItem value="EMNLP">EMNLP</MenuItem>
                   </Select>
                 </FormControl>
-              </Grid>
-
-              {/* ArXiv Toggle */}
-              <Grid size={{ xs: 12 }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                  <FormControlLabel
-                    control={
-                      <Switch
-                        checked={showArxivOnly}
-                        onChange={(e) => {
-                          setShowArxivOnly(e.target.checked);
-                          if (!e.target.checked) {
-                            setLocalDomains([]);
-                          }
-                        }}
-                        size="small"
-                      />
-                    }
-                    label={<Typography variant="body2">显示 arXiv 文章</Typography>}
-                  />
-                </Box>
-              </Grid>
-
-              {/* Domain Filter - only show when arXiv toggle is on */}
-              {showArxivOnly && (
-                <Grid size={{ xs: 12 }}>
-                  <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: 'block' }}>
-                    领域筛选
-                  </Typography>
-                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                    {DOMAIN_OPTIONS.map((domain) => (
-                      <Chip
-                        key={domain}
-                        label={domain}
-                        size="small"
-                        onClick={() => handleDomainToggle(domain)}
-                        color={localDomains.includes(domain) ? 'primary' : 'default'}
-                        variant={localDomains.includes(domain) ? 'filled' : 'outlined'}
-                      />
-                    ))}
-                  </Box>
-                </Grid>
-              )}
-            </Grid>
-          </Paper>
-
-          {/* Article List */}
-          <Box sx={{ mb: 2 }}>
-            {loading ? (
-              <>
-                <Skeleton height={80} />
-                <Skeleton height={80} />
-                <Skeleton height={80} />
-              </>
-            ) : articles.length === 0 ? (
-              <Box sx={{ textAlign: 'center', py: 4 }}>
-                <Typography color="text.secondary">没有找到符合条件的文章</Typography>
               </Box>
-            ) : (
-              articles.map((article) => (
-                <ArticleCard key={article.id} article={article} />
-              ))
+            </Box>
+
+            {/* 领域筛选（仅当 arXiv 开关打开时显示） */}
+            {showArxivOnly && (
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, pl: 1.5 }}>
+                <Typography variant="body2" color="text.secondary" sx={{ whiteSpace: 'nowrap' }}>
+                  领域:
+                </Typography>
+                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                  {DOMAIN_OPTIONS.map((domain) => (
+                    <Chip
+                      key={domain}
+                      label={domain}
+                      size="small"
+                      onClick={() => handleDomainToggle(domain)}
+                      color={localDomains.includes(domain) ? 'primary' : 'default'}
+                      variant={localDomains.includes(domain) ? 'filled' : 'outlined'}
+                    />
+                  ))}
+                </Box>
+              </Box>
             )}
           </Box>
+        </Paper>
 
-          {/* Pagination */}
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', py: 2 }}>
-            <FormControl size="small" sx={{ width: 120 }}>
-              <InputLabel>每页条数</InputLabel>
-              <Select
-                value={pageSize}
-                label="每页条数"
-                onChange={(e) => setPageSize(e.target.value as number)}
-              >
-                <MenuItem value={10}>10 条</MenuItem>
-                <MenuItem value={20}>20 条</MenuItem>
-                <MenuItem value={50}>50 条</MenuItem>
-              </Select>
-            </FormControl>
-            <Pagination
-              count={totalPages}
-              page={page}
-              onChange={(_, newPage) => setPage(newPage)}
-              color="primary"
-            />
-          </Box>
-        </Container>
+        {/* Content - Scrollable Area */}
+        <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', position: 'relative' }}>
+          {/* Top Gradient overlay - 文章滑动时渐变消失 */}
+          <Box
+            sx={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              height: 32,
+              background: (theme) => `linear-gradient(to bottom, ${theme.palette.background.paper}F2, ${theme.palette.background.paper}00)`,
+              pointerEvents: 'none',
+              zIndex: 1,
+            }}
+          />
+
+          {/* Bottom Gradient overlay - 文章滑动到底部时渐变消失 */}
+          <Box
+            sx={{
+              position: 'absolute',
+              bottom: 0,
+              left: 0,
+              right: 0,
+              height: 32,
+              background: (theme) => `linear-gradient(to top, ${theme.palette.background.paper}F2, ${theme.palette.background.paper}00)`,
+              pointerEvents: 'none',
+              zIndex: 1,
+            }}
+          />
+
+          <Container maxWidth="lg" sx={{ flex: 1, pt: 2, pb: 2, overflow: 'auto' }}>
+            {/* Article List */}
+            <Box>
+              {loading ? (
+                <>
+                  <Skeleton height={80} />
+                  <Skeleton height={80} />
+                  <Skeleton height={80} />
+                </>
+              ) : articles.length === 0 ? (
+                <Box sx={{ textAlign: 'center', py: 4 }}>
+                  <Typography color="text.secondary">没有找到符合条件的文章</Typography>
+                </Box>
+              ) : (
+                articles.map((article) => (
+                  <ArticleCard key={article.id} article={article} />
+                ))
+              )}
+            </Box>
+          </Container>
+
+          {/* Pagination - Fixed at bottom */}
+          <Paper sx={{ px: 3, py: 1, borderTop: 1, borderColor: 'divider', flexShrink: 0 }}>
+            <Box sx={{ maxWidth: 'lg', mx: 'auto', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <FormControl size="small" sx={{ width: 100 }}>
+                <InputLabel>每页条数</InputLabel>
+                <Select
+                  value={pageSize}
+                  label="每页条数"
+                  onChange={(e) => setPageSize(e.target.value as number)}
+                >
+                  <MenuItem value={5}>5 条</MenuItem>
+                  <MenuItem value={10}>10 条</MenuItem>
+                  <MenuItem value={20}>20 条</MenuItem>
+                  <MenuItem value={50}>50 条</MenuItem>
+                </Select>
+              </FormControl>
+              <Pagination
+                count={totalPages}
+                page={page}
+                onChange={(_, newPage) => setPage(newPage)}
+                color="primary"
+                size="small"
+              />
+            </Box>
+          </Paper>
+        </Box>
       </Box>
     </LocalizationProvider>
   );

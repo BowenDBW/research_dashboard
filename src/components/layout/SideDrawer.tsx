@@ -14,7 +14,6 @@ import {
   IconButton,
   Box,
   Avatar,
-  Badge,
   Menu,
   MenuItem,
   ListItemIcon as MenuListItemIcon,
@@ -25,33 +24,38 @@ import {
   Settings as SettingsIcon,
   ChevronLeft as ChevronLeftIcon,
   ChevronRight as ChevronRightIcon,
-  History as HistoryIcon,
+  Article as ArticleIcon,
   Chat as ChatIcon,
   Search as SearchIcon,
   Summarize as SummarizeIcon,
   MoreVert as MoreVertIcon,
   Delete as DeleteIcon,
+  DarkMode as DarkModeIcon,
+  LightMode as LightModeIcon,
 } from '@mui/icons-material';
 import { useChatStore } from '../../stores/useChatStore';
+import { useThemeMode } from '../../app/ThemeProvider';
 
 interface SideDrawerProps {
   open: boolean;
   onToggle: () => void;
+  onOpenSettings: () => void;
 }
 
 const DRAWER_WIDTH = 280;
 const DRAWER_WIDTH_COLLAPSED = 72;
 
-export const SideDrawer = ({ open, onToggle }: SideDrawerProps) => {
+export const SideDrawer = ({ open, onToggle, onOpenSettings }: SideDrawerProps) => {
   const navigate = useNavigate();
   const location = useLocation();
   const { sessions, currentSessionId, createSession, switchSession, deleteSession } = useChatStore();
-  const [newArticleCount] = useState(5);
+  const { mode, toggleMode } = useThemeMode();
   const [menuAnchorEl, setMenuAnchorEl] = useState<null | HTMLElement>(null);
   const [menuSessionId, setMenuSessionId] = useState<string | null>(null);
 
   const handleNewChat = () => {
     createSession('chat');
+    navigate('/');
   };
 
   const handleSessionClick = (sessionId: string) => {
@@ -80,7 +84,7 @@ export const SideDrawer = ({ open, onToggle }: SideDrawerProps) => {
   const isCollapsed = !open;
 
   return (
-    <Box sx={{ position: 'relative' }}>
+    <Box sx={{ position: 'relative', pointerEvents: 'none' }}>
       <Drawer
         variant="permanent"
         sx={{
@@ -94,11 +98,12 @@ export const SideDrawer = ({ open, onToggle }: SideDrawerProps) => {
                 easing: theme.transitions.easing.sharp,
                 duration: theme.transitions.duration.enteringScreen,
               }),
+            pointerEvents: 'auto',
           },
         }}
       >
         {/* Crawler Status */}
-        <Box sx={{ p: open ? 2 : 1 }}>
+        <Box sx={{ p: open ? 2 : 1, pt: open ? 2 : 2 }}>
           <Box
             sx={{
               display: 'flex',
@@ -110,15 +115,16 @@ export const SideDrawer = ({ open, onToggle }: SideDrawerProps) => {
           >
             {open ? (
               <>
-                <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
-                  爬虫记录
-                </Typography>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <ArticleIcon fontSize="small" />
+                  <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+                    文章检索
+                  </Typography>
+                </Box>
                 <ArrowForwardIcon fontSize="small" />
               </>
             ) : (
-              <Badge badgeContent={newArticleCount} color="primary">
-                <HistoryIcon />
-              </Badge>
+              <ArticleIcon />
             )}
           </Box>
           {open && (
@@ -222,33 +228,55 @@ export const SideDrawer = ({ open, onToggle }: SideDrawerProps) => {
 
         <Divider />
 
-        {/* Settings */}
-        <Box sx={{ p: open ? 2 : 1 }}>
-          <Box
-            sx={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: open ? 'space-between' : 'center',
-              cursor: 'pointer',
-            }}
-            onClick={() => navigate('/settings')}
-          >
-            {open ? (
-              <>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <SettingsIcon />
-                  <Typography variant="body2">设置</Typography>
-                </Box>
-                <ArrowForwardIcon fontSize="small" />
-              </>
-            ) : (
-              <IconButton>
+        {/* Theme & Settings - 展开时同一行 */}
+        <Box sx={{ p: open ? 1.5 : 1 }}>
+          {open ? (
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-around' }}>
+              <Box
+                sx={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  cursor: 'pointer',
+                }}
+                onClick={toggleMode}
+              >
+                <IconButton size="small">
+                  {mode === 'light' ? <DarkModeIcon fontSize="small" /> : <LightModeIcon fontSize="small" />}
+                </IconButton>
+                <Typography variant="caption" color="text.secondary">
+                  {mode === 'light' ? '深色' : '浅色'}
+                </Typography>
+              </Box>
+              <Box
+                sx={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  cursor: 'pointer',
+                }}
+                onClick={onOpenSettings}
+              >
+                <IconButton size="small">
+                  <SettingsIcon fontSize="small" />
+                </IconButton>
+                <Typography variant="caption" color="text.secondary">
+                  设置
+                </Typography>
+              </Box>
+            </Box>
+          ) : (
+            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
+              <IconButton onClick={toggleMode} size="small">
+                {mode === 'light' ? <DarkModeIcon /> : <LightModeIcon />}
+              </IconButton>
+              <IconButton onClick={onOpenSettings} size="small">
                 <SettingsIcon />
               </IconButton>
-            )}
-          </Box>
+            </Box>
+          )}
           {open && (
-            <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', textAlign: 'center', mt: 0.5 }}>
               v0.1.0
             </Typography>
           )}
@@ -271,6 +299,7 @@ export const SideDrawer = ({ open, onToggle }: SideDrawerProps) => {
           width: 24,
           height: 24,
           '&:hover': { bgcolor: 'action.hover' },
+          pointerEvents: 'auto',
         }}
       >
         {open ? <ChevronLeftIcon fontSize="small" /> : <ChevronRightIcon fontSize="small" />}

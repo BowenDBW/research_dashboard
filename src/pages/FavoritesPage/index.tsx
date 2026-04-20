@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   Box,
@@ -22,6 +22,7 @@ import {
   TextField,
   Chip,
   Divider,
+  Tooltip,
 } from '@mui/material';
 import {
   ArrowBack as ArrowBackIcon,
@@ -33,12 +34,13 @@ import {
   Delete as DeleteIcon,
   ContentCut as ContentCutIcon,
   ContentPaste as ContentPasteIcon,
-  AutoAwesome as AutoAwesomeIcon,
+  Info as InfoIcon,
 } from '@mui/icons-material';
 import { useFavoriteStore } from '../../stores/useFavoriteStore';
-import { ArticleActions } from '../../components/article/ArticleActions';
 import { ConfirmDialog } from '../../components/common/ConfirmDialog';
 import { ContextMenu } from '../../components/common/ContextMenu';
+import { AbstractDialog } from '../../components/article/AbstractDialog';
+import { Article } from '../../types';
 
 const FavoritesPage = () => {
   const navigate = useNavigate();
@@ -64,11 +66,14 @@ const FavoritesPage = () => {
   const [newFolderName, setNewFolderName] = useState('');
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
   const [selectedArticleId, setSelectedArticleId] = useState<string | null>(null);
+  const [abstractDialogOpen, setAbstractDialogOpen] = useState(false);
+  const [selectedArticle, setSelectedArticle] = useState<Article | null>(null);
+  const [selectedArticleFavorited, setSelectedArticleFavorited] = useState(false);
 
   // Navigate to folder on mount or folderId change
-  useState(() => {
+  useEffect(() => {
     navigateToFolder(folderId || null);
-  });
+  }, [folderId, navigateToFolder]);
 
   const handleBreadcrumbClick = (folderId: string | null) => {
     navigateToFolder(folderId);
@@ -84,6 +89,21 @@ const FavoritesPage = () => {
       navigate(`/favorites/${item.id}`);
       navigateToFolder(item.id);
     }
+  };
+
+  const handleArticleClick = (article: Article) => {
+    setSelectedArticle(article);
+    setSelectedArticleFavorited(true);
+    setAbstractDialogOpen(true);
+  };
+
+  const handleAbstractDialogClose = () => {
+    setAbstractDialogOpen(false);
+    setSelectedArticle(null);
+  };
+
+  const handleFavoriteChange = (isFavorited: boolean) => {
+    setSelectedArticleFavorited(isFavorited);
   };
 
   const handleNewFolder = async () => {
@@ -125,6 +145,14 @@ const FavoritesPage = () => {
     }
   };
 
+  // 格式化作者列表：最多显示3个，多于3个显示 "et al."
+  const formatAuthors = (authors: string[]) => {
+    if (authors.length <= 3) {
+      return authors.join(', ');
+    }
+    return `${authors.slice(0, 3).join(', ')} et al.`;
+  };
+
   const folderContextMenuItems = [
     {
       label: '修改文件夹',
@@ -152,7 +180,21 @@ const FavoritesPage = () => {
     },
   ];
 
-  const fileContextMenuItems = [
+  const fileContextMenuItems = (article: Article, _itemId: string) => [
+    {
+      label: '属性',
+      icon: <InfoIcon />,
+      onClick: () => {
+        handleArticleClick(article);
+      },
+    },
+    {
+      label: '剪贴',
+      icon: <ContentCutIcon />,
+      onClick: () => {
+        // 这里可以添加剪贴逻辑
+      },
+    },
     {
       label: '取消收藏',
       icon: <DeleteIcon />,
@@ -213,7 +255,7 @@ const FavoritesPage = () => {
       {/* Breadcrumb */}
       <Box sx={{ px: 3, py: 2, bgcolor: 'background.paper' }}>
         <Breadcrumbs>
-          {folderPath.map((node, index) => (
+          {folderPath.map((node) => (
             <Link
               key={node.id || 'root'}
               component="button"
@@ -254,7 +296,7 @@ const FavoritesPage = () => {
                   </ContextMenu>
                 ) : (
                   <ContextMenu
-                    items={fileContextMenuItems.map((i) => ({
+                    items={fileContextMenuItems(item.article!, item.id).map((i) => ({
                       ...i,
                       onClick: () => {
                         setSelectedArticleId(item.id);
@@ -262,38 +304,32 @@ const FavoritesPage = () => {
                       },
                     }))}
                   >
-                    <ListItem disablePadding>
+                    <ListItem
+                      disablePadding
+                      onClick={() => item.article && handleArticleClick(item.article)}
+                      sx={{ cursor: 'pointer', '&:hover': { bgcolor: 'action.hover' } }}
+                    >
                       <Box sx={{ width: '100%', px: 2, py: 1.5 }}>
                         {item.article && (
-                          <>
-                            {/* 第一行：图标 + 标题 + AI按钮 + 功能按钮 */}
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                              <InsertDriveFileIcon sx={{ color: '#42A5F5', fontSize: 20 }} />
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            {/* 图标 */}
+                            <InsertDriveFileIcon sx={{ color: '#42A5F5', fontSize: 20, flexShrink: 0 }} />
+
+                            {/* 来源 */}
+                            <Chip label={item.article.source} size="small" sx={{ height: 20, fontSize: '0.7rem', flexShrink: 0 }} />
+
+                            {/* 标题 - 带 Tooltip */}
+                            <Tooltip title={item.article.title} arrow enterDelay={500}>
                               <Typography variant="subtitle2" sx={{ fontWeight: 600 }} noWrap>
                                 {item.article.title}
                               </Typography>
-                              <IconButton
-                                size="small"
-                                onClick={() => navigate(`/?tab=summary&articleId=${item.article?.id}`)}
-                                color="secondary"
-                                sx={{ p: 0, '&:hover': { bgcolor: 'transparent' } }}
-                              >
-                                <AutoAwesomeIcon sx={{ fontSize: 14 }} />
-                                <Typography variant="caption" sx={{ fontWeight: 500 }}>
-                                  ASK AI
-                                </Typography>
-                              </IconButton>
-                              <Box sx={{ flex: 1 }} />
-                              <ArticleActions article={item.article} compact />
-                            </Box>
-                            {/* 第二行：来源 + 作者 */}
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5, pl: 3.5 }}>
-                              <Chip label={item.article.source} size="small" sx={{ height: 18, fontSize: '0.65rem' }} />
-                              <Typography variant="caption" color="text.secondary" noWrap>
-                                {item.article.authors.join(', ')}
-                              </Typography>
-                            </Box>
-                          </>
+                            </Tooltip>
+
+                            {/* 作者 */}
+                            <Typography variant="caption" color="text.secondary" noWrap sx={{ flexShrink: 1, minWidth: 0 }}>
+                              {formatAuthors(item.article.authors)}
+                            </Typography>
+                          </Box>
                         )}
                       </Box>
                     </ListItem>
@@ -327,6 +363,16 @@ const FavoritesPage = () => {
           </List>
         </Box>
       </Container>
+
+      {/* Abstract Dialog */}
+      <AbstractDialog
+        open={abstractDialogOpen}
+        article={selectedArticle}
+        isFavorited={selectedArticleFavorited}
+        onClose={handleAbstractDialogClose}
+        onFavoriteChange={handleFavoriteChange}
+        hideActions
+      />
 
       {/* Dialogs */}
       <Dialog open={newFolderDialogOpen} onClose={() => setNewFolderDialogOpen(false)}>

@@ -4,3 +4,4 @@ export * from './chat';
 export * from './settings';
 export * from './subscription';
 export * from './history';
+export * from './daily';

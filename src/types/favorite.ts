@@ -11,7 +11,7 @@ export interface FavoriteItem {
 }
 
 export interface FolderNode {
-  id: string;
+  id: string | null;
   name: string;
   parentId: string | null;
 }

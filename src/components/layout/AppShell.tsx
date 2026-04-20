@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { Outlet } from 'react-router-dom';
 import { Box, useMediaQuery, useTheme } from '@mui/material';
 import { SideDrawer } from './SideDrawer';
 import { RightToolbar } from './RightToolbar';
+import { SettingsDialog } from '../settings/SettingsDialog';
 
 export const AppShell = () => {
   const theme = useTheme();
@@ -10,11 +11,16 @@ export const AppShell = () => {
   const isSm = useMediaQuery(theme.breakpoints.up('sm'));
   const [drawerOpen, setDrawerOpen] = useState(true);
   const [rightToolbarOpen, setRightToolbarOpen] = useState(true);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+
+  const openSettings = useCallback(() => setSettingsOpen(true), []);
+
+  const outletContext = useMemo(() => ({ openSettings }), [openSettings]);
 
   return (
     <Box sx={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
       {/* Left Drawer */}
-      <SideDrawer open={drawerOpen && isSm} onToggle={() => setDrawerOpen(!drawerOpen)} />
+      <SideDrawer open={drawerOpen && isSm} onToggle={() => setDrawerOpen(!drawerOpen)} onOpenSettings={openSettings} />
 
       {/* Main Content */}
       <Box
@@ -26,11 +32,14 @@ export const AppShell = () => {
           minWidth: 0,
         }}
       >
-        <Outlet />
+        <Outlet context={outletContext} />
       </Box>
 
       {/* Right Toolbar */}
       {isMd && <RightToolbar open={rightToolbarOpen} onToggle={() => setRightToolbarOpen(!rightToolbarOpen)} />}
+
+      {/* Settings Dialog */}
+      <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </Box>
   );
 };

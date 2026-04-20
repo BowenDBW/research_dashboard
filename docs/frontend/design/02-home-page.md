@@ -2,7 +2,7 @@
 
 ## 页面概述
 
-主页是用户进入应用后的首屏，包含三个核心区域：左侧可折叠菜单栏（爬虫状态 + 历史对话 + 设置入口）、中央 AI 对话/搜索区域、右侧常驻工具栏。中央区域通过 `Tabs` 组件实现三种模式切换：AI 对话、文章检索、文章逐章总结。
+主页是用户进入应用后的首屏，包含三个核心区域：左侧可折叠菜单栏（爬虫状态 + 历史对话 + 设置入口）、中央 AI 对话/搜索区域、右侧常驻工具栏。中央区域通过 `Tabs` 组件实现三种模式切换：AI 对话、AI搜索推荐、文章逐章总结。
 
 ## 布局结构
 
@@ -13,7 +13,7 @@
 │ │ SideDrawer │ │   Central Content       │ │ RightToolbar│ │
 │ │            │ │ ┌─────────────────────┐ │ │             │ │
 │ │ ┌────────┐ │ │ │  Tabs:              │ │ │ ┌─────────┐ │ │
-│ │ │爬虫记录│ │ │ │  [Chat] [Search]    │ │ │ │收藏夹   │ │ │
+│ │ │文章检索│ │ │ │  [Chat] [Search]    │ │ │ │收藏夹   │ │ │
 │ │ │标题→   │ │ │ │  [Summary]          │ │ │ │文件树   │ │ │
 │ │ │------  │ │ │ ├─────────────────────┤ │ │ │       → │ │ │
 │ │ │最后爬取│ │ │ │                     │ │ │ ├─────────┤ │ │
@@ -39,7 +39,7 @@
 | `Drawer` | 左侧可折叠菜单栏 |
 | `List` / `ListItem` / `ListItemButton` / `ListItemText` | 历史对话记录列表 |
 | `ListItemAvatar` | 对话条目前显示头像/图标 |
-| `Divider` | 分隔爬虫记录区、对话区、设置区 |
+| `Divider` | 分隔文章检索区、对话区、设置区 |
 | `Button` | 新建对话按钮 |
 | `Typography` | 爬虫状态文字、版本号 |
 | `IconButton` | 设置按钮、折叠按钮 |
@@ -55,17 +55,17 @@
 | `Stack` | 对话消息垂直排列 |
 | `Paper` | 对话消息气泡容器 |
 | `Skeleton` | AI 回复加载占位 |
-| `DatePicker` (来自 @mui/x-date-pickers) | 文章检索 起止时间选择 |
+| `DatePicker` (来自 @mui/x-date-pickers) | AI搜索推荐 起止时间选择 |
 | `Autocomplete` | 文章标题输入 + 下拉候选 |
 | `CircularProgress` | AI 思考中进度指示 |
 | `Tooltip` | 按钮悬浮提示 |
-| `Badge` | 爬虫记录区的新文章数量徽标 |
+| `Badge` | 文章检索区的新文章数量徽标 |
 
 ## 交互逻辑
 
 ### 左侧 Drawer
 
-- **爬虫记录区**：顶部显示 "爬虫记录" 标题，右侧带 `ArrowForward` 图标，点击跳转至文章列表页。下方展示最后爬取时间（`Typography caption`）和文章总量（`Typography body2`）。
+- **文章检索区**：顶部显示 "文章检索" 标题，右侧带 `ArrowForward` 图标，点击跳转至文章列表页。下方展示最后爬取时间（`Typography caption`）和文章总量（`Typography body2`）。
 - **新建对话按钮**：点击清空当前对话区，创建新的对话 session，调用 `useChatStore.createSession()`。
 - **历史对话列表**：每条记录为 `ListItemButton`，点击加载该 session 的对话历史。当前选中项高亮（`selected` 状态）。
 - **设置按钮**：底部 `IconButton`，右侧 `ArrowForward`，点击 `navigate('/settings')`。
@@ -78,7 +78,7 @@
 - 发送后调用 `invoke('chat_send', { message, sessionId })` 与 Tauri 后端通信，后端将请求转发至大模型（云端或本地）。
 - AI 回复流式显示：后端通过 Tauri Event `chat:stream` 推送 token，前端逐步追加到消息内容。
 
-### 中央内容区 — 文章检索 模式
+### 中央内容区 — AI搜索推荐 模式
 
 - 切换到该 Tab 后，输入区上方显示 `DatePicker` 起止时间选择（精确到天）。
 - 用户输入搜索需求后，发送至大模型，大模型返回匹配论文列表。
@@ -129,7 +129,7 @@ interface ChatStore {
 ```
 HomePage
 ├── SideDrawer (左侧)
-│   ├── Box (爬虫记录区)
+│   ├── Box (文章检索区)
 │   │   ├── Typography (标题 + ArrowForward → 文章列表)
 │   │   ├── Typography (最后爬取时间)
 │   │   └── Typography (文章总量)

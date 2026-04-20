@@ -70,11 +70,12 @@ interface FavoriteStore {
   clipboard: FavoriteClipboard | null;
   loading: boolean;
   navigateToFolder: (folderId: string | null) => Promise<void>;
-  createFolder: (name: string) => Promise<void>;
+  createFolder: (name: string, parentId?: string | null) => Promise<string>;
   renameFolder: (folderId: string, newName: string) => Promise<void>;
   deleteFolder: (folderId: string) => Promise<void>;
   cutFolder: (folderId: string) => void;
   pasteFolder: (targetParentId: string | null) => Promise<void>;
+  addFavorite: (article: any, folderId: string | null) => Promise<void>;
   removeFavorite: (articleId: string) => Promise<void>;
 }
 
@@ -114,16 +115,18 @@ export const useFavoriteStore = create<FavoriteStore>((set, get) => ({
     set({ items, folderPath, loading: false });
   },
 
-  createFolder: async (name) => {
+  createFolder: async (name, parentId = null) => {
     const { currentFolderId } = get();
+    const targetParentId = parentId !== null ? parentId : currentFolderId;
     const newFolder: FavoriteItem = {
       id: `folder-${Date.now()}`,
       type: 'folder',
       name,
-      parentId: currentFolderId,
+      parentId: targetParentId,
       createdAt: new Date().toISOString(),
     };
     set((state) => ({ items: [...state.items, newFolder] }));
+    return newFolder.id;
   },
 
   renameFolder: async (folderId, newName) => {
@@ -154,6 +157,35 @@ export const useFavoriteStore = create<FavoriteStore>((set, get) => ({
       ),
       clipboard: null,
     }));
+  },
+
+  addFavorite: async (article, folderId) => {
+    const newFavorite: FavoriteItem = {
+      id: `file-${Date.now()}`,
+      type: 'file',
+      name: article.title,
+      article,
+      parentId: folderId,
+      createdAt: new Date().toISOString(),
+    };
+
+    if (folderId === null) {
+      // 添加到根目录
+      set((state) => ({ items: [...state.items, newFavorite] }));
+    } else {
+      // 添加到指定文件夹
+      set((state) => ({
+        items: state.items.map((item) => {
+          if (item.id === folderId && item.type === 'folder') {
+            return {
+              ...item,
+              children: [...(item.children || []), newFavorite],
+            };
+          }
+          return item;
+        }),
+      }));
+    }
   },
 
   removeFavorite: async (articleId) => {

@@ -1,35 +1,36 @@
 import { useState, useEffect } from 'react';
 import {
-  Box,
-  IconButton,
-  Tooltip,
   Dialog,
   DialogTitle,
   DialogContent,
   DialogActions,
   Button,
   Typography,
-  Snackbar,
+  Box,
+  IconButton,
+  Tooltip,
   List,
   ListItemButton,
   ListItemIcon,
   ListItemText,
   TextField,
   Collapse,
+  Snackbar,
 } from '@mui/material';
 import {
-  Description as DescriptionIcon,
+  Close as CloseIcon,
   OpenInNew as OpenInNewIcon,
+  Download as DownloadIcon,
+  AutoAwesome as AutoAwesomeIcon,
   Bookmark as BookmarkIcon,
   BookmarkBorder as BookmarkBorderIcon,
-  Download as DownloadIcon,
   Folder as FolderIcon,
   ExpandLess as ExpandLessIcon,
   ExpandMore as ExpandMoreIcon,
 } from '@mui/icons-material';
+import { useNavigate } from 'react-router-dom';
 import { Article, FavoriteItem } from '../../types';
 import { useFavoriteStore } from '../../stores/useFavoriteStore';
-import { AbstractDialog } from './AbstractDialog';
 
 interface FolderItem {
   id: string | null;
@@ -37,31 +38,32 @@ interface FolderItem {
   children?: FolderItem[];
 }
 
-interface ArticleActionsProps {
-  article: Article;
+interface AbstractDialogProps {
+  open: boolean;
+  article: Article | null;
   isFavorited?: boolean;
-  compact?: boolean;
-  hideFavorite?: boolean;
-  onFavorite?: (articleId: string) => void;
+  onClose: () => void;
+  onFavoriteChange?: (isFavorited: boolean) => void;
+  hideActions?: boolean;
 }
 
-export const ArticleActions = ({
+export const AbstractDialog = ({
+  open,
   article,
   isFavorited = false,
-  compact = false,
-  hideFavorite = false,
-  onFavorite,
-}: ArticleActionsProps) => {
-  const [abstractDialogOpen, setAbstractDialogOpen] = useState(false);
-  const [snackbarOpen, setSnackbarOpen] = useState(false);
-  const [snackbarMessage, setSnackbarMessage] = useState('');
-  const [favorited, setFavorited] = useState(isFavorited);
+  onClose,
+  onFavoriteChange,
+  hideActions = false,
+}: AbstractDialogProps) => {
+  const navigate = useNavigate();
   const [selectFolderDialogOpen, setSelectFolderDialogOpen] = useState(false);
   const [unfavoriteConfirmOpen, setUnfavoriteConfirmOpen] = useState(false);
   const [folders, setFolders] = useState<FolderItem[]>([]);
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
   const [newFolderName, setNewFolderName] = useState('');
   const [showNewFolderInput, setShowNewFolderInput] = useState(false);
+  const [snackbarOpen, setSnackbarOpen] = useState(false);
+  const [snackbarMessage, setSnackbarMessage] = useState('');
 
   const { items, createFolder, addFavorite, removeFavorite } = useFavoriteStore();
 
@@ -79,40 +81,43 @@ export const ArticleActions = ({
     setFolders(buildFolderTree(items));
   }, [items]);
 
-  const handleAbstract = () => {
-    setAbstractDialogOpen(true);
-  };
+  if (!article) return null;
 
   const handleSource = () => {
     window.open(article.url, '_blank');
-    setSnackbarMessage('正在打开来源网页...');
-    setSnackbarOpen(true);
+  };
+
+  const handleDownload = () => {
+    window.open(article.pdfUrl, '_blank');
+  };
+
+  const handleAskAI = () => {
+    navigate(`/?tab=summary&articleId=${article.id}`);
+    onClose();
   };
 
   const handleFavoriteClick = () => {
-    if (favorited) {
+    if (isFavorited) {
       setUnfavoriteConfirmOpen(true);
     } else {
       setSelectFolderDialogOpen(true);
     }
   };
 
-  const handleConfirmUnfavorite = async () => {
-    await removeFavorite(article.id);
-    setFavorited(false);
-    onFavorite?.(article.id);
-    setSnackbarMessage('已取消收藏');
-    setSnackbarOpen(true);
-    setUnfavoriteConfirmOpen(false);
-  };
-
   const handleSelectFolder = async (folderId: string | null) => {
     await addFavorite(article, folderId);
-    setFavorited(true);
-    onFavorite?.(article.id);
+    onFavoriteChange?.(true);
     setSnackbarMessage('已添加到收藏夹');
     setSnackbarOpen(true);
     setSelectFolderDialogOpen(false);
+  };
+
+  const handleConfirmUnfavorite = async () => {
+    await removeFavorite(article.id);
+    onFavoriteChange?.(false);
+    setSnackbarMessage('已取消收藏');
+    setSnackbarOpen(true);
+    setUnfavoriteConfirmOpen(false);
   };
 
   const handleCreateNewFolder = async () => {
@@ -159,63 +164,68 @@ export const ArticleActions = ({
     ));
   };
 
-  const handleDownload = () => {
-    window.open(article.pdfUrl, '_blank');
-    setSnackbarMessage('正在下载 PDF...');
-    setSnackbarOpen(true);
-  };
-
-  // 按钮尺寸：compact 模式保持原样，非 compact 模式放大一号
-  const iconSize = compact ? 18 : 20;
-  const buttonPadding = compact ? 0.5 : 0.75;
-
   return (
     <>
-      <Box sx={{ display: 'flex', gap: compact ? 0.25 : 0.5 }}>
-        <Tooltip title="摘要">
-          <IconButton size="small" onClick={handleAbstract} sx={{ p: buttonPadding }}>
-            <DescriptionIcon sx={{ fontSize: iconSize }} />
+      <Dialog
+        open={open}
+        onClose={onClose}
+        maxWidth="sm"
+        fullWidth
+        PaperProps={{
+          sx: { aspectRatio: '16/9', maxHeight: '80vh' },
+        }}
+      >
+        <DialogTitle>
+          <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 1, pr: 4 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flex: 1, flexWrap: 'wrap' }}>
+              <Typography variant="h6" sx={{ fontWeight: 600 }}>
+                {article.title}
+              </Typography>
+              <IconButton size="small" onClick={handleAskAI} color="secondary" sx={{ p: 0.5 }}>
+                <AutoAwesomeIcon sx={{ fontSize: 20 }} />
+                <Typography variant="h6" sx={{ fontWeight: 600, ml: 0.5 }}>ASK AI</Typography>
+              </IconButton>
+            </Box>
+          </Box>
+          <IconButton
+            onClick={onClose}
+            sx={{ position: 'absolute', right: 8, top: 8 }}
+          >
+            <CloseIcon />
           </IconButton>
-        </Tooltip>
-
-        <Tooltip title="来源">
-          <IconButton size="small" onClick={handleSource} sx={{ p: buttonPadding }}>
-            <OpenInNewIcon sx={{ fontSize: iconSize }} />
-          </IconButton>
-        </Tooltip>
-
-        {!hideFavorite && (
-          <Tooltip title={favorited ? '取消收藏' : '收藏'}>
-            <IconButton
-              size="small"
-              onClick={handleFavoriteClick}
-              color={favorited ? 'primary' : 'default'}
-              sx={{ p: buttonPadding }}
-            >
-              {favorited ? (
-                <BookmarkIcon sx={{ fontSize: iconSize }} />
-              ) : (
-                <BookmarkBorderIcon sx={{ fontSize: iconSize }} />
-              )}
-            </IconButton>
-          </Tooltip>
+        </DialogTitle>
+        <DialogContent dividers>
+          <Typography variant="subtitle2" gutterBottom>
+            作者: {article.authors.join(', ')}
+          </Typography>
+          <Typography variant="body2" color="text.secondary" gutterBottom>
+            来源: {article.source} | 发布日期: {article.publishDate}
+          </Typography>
+          <Typography variant="h6" sx={{ mt: 3, mb: 1 }}>
+            摘要
+          </Typography>
+          <Typography variant="body1">{article.abstract}</Typography>
+        </DialogContent>
+        {!hideActions && (
+          <DialogActions sx={{ px: 3, py: 2, justifyContent: 'space-between' }}>
+          <Box sx={{ display: 'flex', gap: 1 }}>
+            <Tooltip title={isFavorited ? '取消收藏' : '收藏'}>
+              <IconButton onClick={handleFavoriteClick} color={isFavorited ? 'primary' : 'default'}>
+                {isFavorited ? <BookmarkIcon /> : <BookmarkBorderIcon />}
+              </IconButton>
+            </Tooltip>
+          </Box>
+          <Box sx={{ display: 'flex', gap: 1 }}>
+            <Button startIcon={<OpenInNewIcon />} onClick={handleSource}>
+              来源
+            </Button>
+            <Button startIcon={<DownloadIcon />} onClick={handleDownload}>
+              PDF
+            </Button>
+          </Box>
+        </DialogActions>
         )}
-
-        <Tooltip title="PDF">
-          <IconButton size="small" onClick={handleDownload} sx={{ p: buttonPadding }}>
-            <DownloadIcon sx={{ fontSize: iconSize }} />
-          </IconButton>
-        </Tooltip>
-      </Box>
-
-      {/* Abstract Dialog */}
-      <AbstractDialog
-        open={abstractDialogOpen}
-        article={article}
-        isFavorited={favorited}
-        onClose={() => setAbstractDialogOpen(false)}
-        onFavoriteChange={(newFavorited) => setFavorited(newFavorited)}
-      />
+      </Dialog>
 
       {/* Select Folder Dialog */}
       <Dialog open={selectFolderDialogOpen} onClose={() => setSelectFolderDialogOpen(false)} maxWidth="xs" fullWidth>

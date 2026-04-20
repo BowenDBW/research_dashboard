@@ -27,10 +27,15 @@ export const ContextMenu = ({ items, children }: ContextMenuProps) => {
   const handleContextMenu = (event: React.MouseEvent) => {
     event.preventDefault();
     event.stopPropagation();
-    setAnchorPosition({
-      top: event.clientY,
-      left: event.clientX,
-    });
+    // 如果菜单已打开，再次右键关闭菜单
+    if (anchorPosition !== null) {
+      setAnchorPosition(null);
+    } else {
+      setAnchorPosition({
+        top: event.clientY,
+        left: event.clientX,
+      });
+    }
   };
 
   const handleClose = () => {
@@ -59,10 +64,21 @@ export const ContextMenu = ({ items, children }: ContextMenuProps) => {
             <MenuItem
               onClick={() => handleItemClick(item.onClick)}
               disabled={item.disabled}
-              sx={item.danger ? { color: 'error.main', '&:hover': { color: 'error.main' } } : undefined}
+              sx={{
+                py: 0.75,
+                px: 1.5,
+                ...(item.danger ? { color: 'error.main', '&:hover': { color: 'error.main' } } : {}),
+              }}
             >
-              {item.icon && <ListItemIcon sx={item.danger ? { color: 'error.main' } : undefined}>{item.icon}</ListItemIcon>}
-              <ListItemText>{item.label}</ListItemText>
+              {item.icon && (
+                <ListItemIcon sx={{ minWidth: 32, ...(item.danger ? { color: 'error.main' } : {}) }}>
+                  {item.icon}
+                </ListItemIcon>
+              )}
+              <ListItemText
+                primary={item.label}
+                primaryTypographyProps={{ variant: 'body2' }}
+              />
             </MenuItem>
           </div>
         ))}

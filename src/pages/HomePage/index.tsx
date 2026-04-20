@@ -1,5 +1,5 @@
-import { useState, useRef, useEffect } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useState, useRef, useEffect, useMemo } from 'react';
+import { useSearchParams, useOutletContext } from 'react-router-dom';
 import {
   Box,
   Tabs,
@@ -11,8 +11,12 @@ import {
   IconButton,
   Avatar,
   Skeleton,
-  AppBar,
-  Toolbar,
+  Autocomplete,
+  Select,
+  MenuItem,
+  FormControl,
+  SelectChangeEvent,
+  Button,
   Chip,
 } from '@mui/material';
 import { DatePicker as MuiDatePicker } from '@mui/x-date-pickers/DatePicker';
@@ -25,12 +29,91 @@ import {
   Summarize as SummarizeIcon,
   SmartToy as SmartToyIcon,
   Person as PersonIcon,
+  Cloud as CloudIcon,
+  Dns as DnsIcon,
+  Apple as AppleIcon,
+  Settings as SettingsIcon,
+  AutoAwesome as AutoAwesomeIcon,
+  MenuBook as MenuBookIcon,
+  Lightbulb as LightbulbIcon,
 } from '@mui/icons-material';
 import dayjs from 'dayjs';
 import { useChatStore } from '../../stores/useChatStore';
-import { Article } from '../../types';
+import { useSettingsStore } from '../../stores/useSettingsStore';
+import { Article, ChatMode } from '../../types';
+
+interface OutletContext {
+  openSettings: () => void;
+}
+
+// 示例文章列表
+const ARTICLE_OPTIONS: Article[] = [
+  {
+    id: '1',
+    title: 'Attention Is All You Need',
+    authors: ['Vaswani et al.'],
+    source: 'arXiv',
+    sourceType: 'arxiv',
+    publishDate: '2017',
+    abstract: '',
+    url: '',
+    pdfUrl: '',
+    domains: ['cs.LG'],
+    isFavorited: false,
+    metadata: {},
+  },
+  {
+    id: '2',
+    title: 'BERT: Pre-training of Deep Bidirectional Transformers',
+    authors: ['Devlin et al.'],
+    source: 'arXiv',
+    sourceType: 'arxiv',
+    publishDate: '2018',
+    abstract: '',
+    url: '',
+    pdfUrl: '',
+    domains: ['cs.CL'],
+    isFavorited: false,
+    metadata: {},
+  },
+  {
+    id: '3',
+    title: 'GPT-4 Technical Report',
+    authors: ['OpenAI'],
+    source: 'arXiv',
+    sourceType: 'arxiv',
+    publishDate: '2023',
+    abstract: '',
+    url: '',
+    pdfUrl: '',
+    domains: ['cs.AI'],
+    isFavorited: false,
+    metadata: {},
+  },
+];
+
+interface ModelOption {
+  id: string;
+  displayName: string;
+  providerName: string;
+  type: 'cloud' | 'local';
+  localType?: 'server' | 'mlx';  // Only for local models
+}
+
+const modeToTab: Record<ChatMode, number> = {
+  chat: 0,
+  paper_search: 1,
+  chapter_summary: 2,
+};
+
+const tabToMode: Record<number, ChatMode> = {
+  0: 'chat',
+  1: 'paper_search',
+  2: 'chapter_summary',
+};
 
 const HomePage = () => {
+  const { openSettings } = useOutletContext<OutletContext>();
   const [searchParams] = useSearchParams();
   const tabFromUrl = searchParams.get('tab');
   const articleIdFromUrl = searchParams.get('articleId');
@@ -43,8 +126,36 @@ const HomePage = () => {
   const [isStreaming, setIsStreaming] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  const { getCurrentMessages, addMessage, currentSessionId, sessions, currentSessionId: activeSessionId } = useChatStore();
+  const { getCurrentMessages, addMessage, currentSessionId, sessions, createSession } = useChatStore();
+  const { settings, updateSettings } = useSettingsStore();
   const messages = getCurrentMessages();
+
+  // Build model options from settings
+  const modelOptions = useMemo<ModelOption[]>(() => {
+    const options: ModelOption[] = [];
+    settings.cloudProviders.forEach((provider) => {
+      provider.models.forEach((model) => {
+        options.push({
+          id: model.id,
+          displayName: model.displayName || model.modelName,
+          providerName: provider.name,
+          type: 'cloud',
+        });
+      });
+    });
+    settings.localProviders.forEach((provider) => {
+      provider.models.forEach((model) => {
+        options.push({
+          id: model.id,
+          displayName: model.displayName || model.modelName,
+          providerName: provider.name,
+          type: 'local',
+          localType: provider.type,
+        });
+      });
+    });
+    return options;
+  }, [settings.cloudProviders, settings.localProviders]);
 
   // Auto scroll to bottom when messages change
   useEffect(() => {
@@ -55,18 +166,29 @@ const HomePage = () => {
   useEffect(() => {
     const session = sessions.find(s => s.id === currentSessionId);
     if (session) {
-      if (session.mode === 'chat') {
-        setActiveTab(0);
-      } else if (session.mode === 'paper_search') {
-        setActiveTab(1);
-      } else if (session.mode === 'chapter_summary') {
-        setActiveTab(2);
-      }
+      setActiveTab(modeToTab[session.mode]);
     }
   }, [currentSessionId, sessions]);
 
   const handleTabChange = (_: React.SyntheticEvent, newValue: number) => {
+    const newMode = tabToMode[newValue];
+    const currentSession = sessions.find(s => s.id === currentSessionId);
+
+    // If current session has messages or different mode, create new session
+    if (currentSession && (messages.length > 0 || currentSession.mode !== newMode)) {
+      createSession(newMode);
+    } else if (currentSession && currentSession.mode === newMode) {
+      // Same mode, just update tab
+      setActiveTab(newValue);
+    } else {
+      // No current session, create new one
+      createSession(newMode);
+    }
     setActiveTab(newValue);
+  };
+
+  const handleModelChange = (event: SelectChangeEvent) => {
+    updateSettings({ selectedModelId: event.target.value });
   };
 
   const handleSend = () => {
@@ -107,33 +229,163 @@ const HomePage = () => {
     }
   };
 
-  const currentSession = sessions.find(s => s.id === activeSessionId);
+  // Empty state content for each mode
+  const EmptyStateContent = ({ mode }: { mode: ChatMode }) => {
+    if (mode === 'chat') {
+      return (
+        <Box sx={{ textAlign: 'center', py: 6, px: 4 }}>
+          <Avatar sx={{ width: 80, height: 80, mx: 'auto', mb: 3, bgcolor: 'primary.light' }}>
+            <ChatIcon sx={{ fontSize: 40 }} />
+          </Avatar>
+          <Typography variant="h5" gutterBottom sx={{ fontWeight: 600, color: 'primary.main' }}>
+            AI 智能对话
+          </Typography>
+          <Typography variant="body1" color="text.secondary" sx={{ mb: 3, maxWidth: 500, mx: 'auto' }}>
+            与 AI 助手进行自然语言对话，探索学术问题、获取研究灵感和深入讨论您感兴趣的话题
+          </Typography>
+          <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center', flexWrap: 'wrap' }}>
+            <Chip icon={<LightbulbIcon />} label="概念解释" variant="outlined" size="small" />
+            <Chip icon={<AutoAwesomeIcon />} label="研究灵感" variant="outlined" size="small" />
+            <Chip icon={<MenuBookIcon />} label="学术讨论" variant="outlined" size="small" />
+          </Box>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 3 }}>
+            试试问：<i>"请解释一下 Transformer 的工作原理"</i>
+          </Typography>
+        </Box>
+      );
+    } else if (mode === 'paper_search') {
+      return (
+        <Box sx={{ textAlign: 'center', py: 6, px: 4 }}>
+          <Avatar sx={{ width: 80, height: 80, mx: 'auto', mb: 3, bgcolor: 'secondary.light' }}>
+            <SearchIcon sx={{ fontSize: 40 }} />
+          </Avatar>
+          <Typography variant="h5" gutterBottom sx={{ fontWeight: 600, color: 'secondary.main' }}>
+            AI 论文搜索
+          </Typography>
+          <Typography variant="body1" color="text.secondary" sx={{ mb: 3, maxWidth: 500, mx: 'auto' }}>
+            用自然语言描述您的研究方向，AI 将为您智能推荐相关论文，支持多数据源联合检索
+          </Typography>
+          <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center', flexWrap: 'wrap' }}>
+            <Chip label="arXiv" size="small" color="primary" variant="outlined" />
+            <Chip label="Semantic Scholar" size="small" color="primary" variant="outlined" />
+            <Chip label="IEEE" size="small" color="primary" variant="outlined" />
+            <Chip label="Springer" size="small" color="primary" variant="outlined" />
+          </Box>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 3 }}>
+            试试搜索：<i>"关于大语言模型推理能力的研究"</i>
+          </Typography>
+        </Box>
+      );
+    } else {
+      return (
+        <Box sx={{ textAlign: 'center', py: 6, px: 4 }}>
+          <Avatar sx={{ width: 80, height: 80, mx: 'auto', mb: 3, bgcolor: 'warning.light' }}>
+            <SummarizeIcon sx={{ fontSize: 40 }} />
+          </Avatar>
+          <Typography variant="h5" gutterBottom sx={{ fontWeight: 600, color: 'warning.dark' }}>
+            文章逐章总结
+          </Typography>
+          <Typography variant="body1" color="text.secondary" sx={{ mb: 3, maxWidth: 500, mx: 'auto' }}>
+            选择一篇论文，AI 将为您生成结构化的逐章总结，帮助您快速把握论文要点
+          </Typography>
+          <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center', flexWrap: 'wrap' }}>
+            <Chip icon={<MenuBookIcon />} label="摘要提取" variant="outlined" size="small" />
+            <Chip icon={<AutoAwesomeIcon />} label="要点归纳" variant="outlined" size="small" />
+            <Chip icon={<LightbulbIcon />} label="关键发现" variant="outlined" size="small" />
+          </Box>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 3 }}>
+            从上方选择文章或从收藏夹中打开论文开始总结
+          </Typography>
+        </Box>
+      );
+    }
+  };
 
   return (
     <LocalizationProvider dateAdapter={AdapterDayjs}>
       <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-        {/* Top Bar */}
-        <AppBar position="static" color="transparent" elevation={0} sx={{ bgcolor: 'background.paper', flexShrink: 0 }}>
-          <Toolbar>
-            <Typography variant="h6" sx={{ flexGrow: 1 }}>
-              Research Dashboard
-            </Typography>
-            <Chip label={`模式: ${currentSession?.mode || 'chat'}`} size="small" />
-          </Toolbar>
-        </AppBar>
-
-        {/* Tabs */}
+        {/* Tabs with Model Selector */}
         <Paper sx={{ flexShrink: 0 }} square>
-          <Tabs value={activeTab} onChange={handleTabChange} variant="fullWidth">
-            <Tab icon={<ChatIcon />} label="AI 对话" iconPosition="start" />
-            <Tab icon={<SearchIcon />} label="文章检索" iconPosition="start" />
-            <Tab icon={<SummarizeIcon />} label="文章总结" iconPosition="start" />
-          </Tabs>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 1 }}>
+            <Tabs
+              value={activeTab}
+              onChange={handleTabChange}
+              variant="scrollable"
+              scrollButtons={false}
+              sx={{ minHeight: 40, '& .MuiTab-root': { minHeight: 40, py: 0.5, px: 2, minWidth: 'auto' } }}
+            >
+              <Tab icon={<ChatIcon />} label="AI 对话" iconPosition="start" />
+              <Tab icon={<SearchIcon />} label="AI搜索推荐" iconPosition="start" />
+              <Tab icon={<SummarizeIcon />} label="文章总结" iconPosition="start" />
+            </Tabs>
+
+            {/* Model Selector */}
+            <FormControl size="small" sx={{ minWidth: 220, mr: 1 }}>
+              {modelOptions.length > 0 ? (
+                <Select
+                  value={settings.selectedModelId || ''}
+                  onChange={handleModelChange}
+                  displayEmpty
+                  renderValue={(value) => {
+                    if (!value) return <Typography variant="body2" color="text.secondary">选择模型</Typography>;
+                    const model = modelOptions.find(m => m.id === value);
+                    if (!model) return <Typography variant="body2">选择模型</Typography>;
+                    return (
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                        {model.type === 'cloud' ? (
+                          <CloudIcon sx={{ fontSize: 16 }} color="primary" />
+                        ) : model.localType === 'mlx' ? (
+                          <AppleIcon sx={{ fontSize: 16, color: '#A3AAAE' }} />
+                        ) : (
+                          <DnsIcon sx={{ fontSize: 16 }} color="secondary" />
+                        )}
+                        <Typography variant="body2" noWrap>{model.displayName}</Typography>
+                        <Typography variant="caption" sx={{ color: 'text.disabled', ml: 0.5 }}>
+                          {model.providerName}
+                        </Typography>
+                      </Box>
+                    );
+                  }}
+                  sx={{ height: 32 }}
+                >
+                  {modelOptions.map((model) => (
+                    <MenuItem key={model.id} value={model.id}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        {model.type === 'cloud' ? (
+                          <CloudIcon sx={{ fontSize: 18 }} color="primary" />
+                        ) : model.localType === 'mlx' ? (
+                          <AppleIcon sx={{ fontSize: 18, color: '#A3AAAE' }} />
+                        ) : (
+                          <DnsIcon sx={{ fontSize: 18 }} color="secondary" />
+                        )}
+                        <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 0.5 }}>
+                          <Typography variant="body2">{model.displayName}</Typography>
+                          <Typography variant="caption" color="text.disabled">
+                            {model.providerName}
+                          </Typography>
+                        </Box>
+                      </Box>
+                    </MenuItem>
+                  ))}
+                </Select>
+              ) : (
+                <Button
+                  size="small"
+                  variant="outlined"
+                  startIcon={<SettingsIcon />}
+                  onClick={openSettings}
+                  sx={{ height: 32, whiteSpace: 'nowrap' }}
+                >
+                  配置模型
+                </Button>
+              )}
+            </FormControl>
+          </Box>
         </Paper>
 
         {/* Main Content Area */}
         <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', p: 2 }}>
-          {/* 文章检索: Date Range */}
+          {/* AI搜索推荐: Date Range */}
           {activeTab === 1 && (
             <Box sx={{ mb: 2, display: 'flex', gap: 2, flexShrink: 0 }}>
               <MuiDatePicker
@@ -153,29 +405,35 @@ const HomePage = () => {
 
           {/* Chapter Summary: Article Selection */}
           {activeTab === 2 && !articleIdFromUrl && (
-            <Box sx={{ mb: 2, flexShrink: 0 }}>
-              <TextField
-                fullWidth
-                label="选择文章标题"
-                placeholder="输入文章标题部分..."
-                value={selectedArticle?.title || ''}
-                onChange={(e) => {
-                  if (e.target.value.includes('Attention')) {
-                    setSelectedArticle({
-                      id: '1',
-                      title: 'Attention Is All You Need',
-                      authors: ['Vaswani et al.'],
-                      source: 'arXiv',
-                      sourceType: 'arxiv',
-                      publishDate: '2017',
-                      abstract: '',
-                      url: '',
-                      pdfUrl: '',
-                      domains: ['cs.LG'],
-                      isFavorited: false,
-                      metadata: {},
-                    });
-                  }
+            <Box sx={{ mb: 2, flexShrink: 0, display: 'flex', justifyContent: 'center' }}>
+              <Autocomplete
+                options={ARTICLE_OPTIONS}
+                getOptionLabel={(option) => option.title}
+                value={selectedArticle}
+                onChange={(_, newValue) => setSelectedArticle(newValue)}
+                sx={{ width: 400, maxWidth: '50%' }}
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    label="选择文章"
+                    placeholder="输入文章标题..."
+                    size="small"
+                  />
+                )}
+                renderOption={(props, option) => {
+                  const { key, ...otherProps } = props as any;
+                  return (
+                    <li key={key} {...otherProps}>
+                      <Box>
+                        <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                          {option.title}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          {option.authors.join(', ')} · {option.source} · {option.publishDate}
+                        </Typography>
+                      </Box>
+                    </li>
+                  );
                 }}
               />
             </Box>
@@ -185,15 +443,7 @@ const HomePage = () => {
           <Box sx={{ flex: 1, overflow: 'auto', mb: 2 }}>
             <Stack spacing={2}>
               {messages.length === 0 ? (
-                <Box sx={{ textAlign: 'center', py: 4 }}>
-                  <Typography color="text.secondary">
-                    {activeTab === 0
-                      ? '开始一个新的对话...'
-                      : activeTab === 1
-                      ? '输入搜索条件查找论文...'
-                      : '选择文章开始逐章总结...'}
-                  </Typography>
-                </Box>
+                <EmptyStateContent mode={tabToMode[activeTab]} />
               ) : (
                 messages.map((msg) => (
                   <Box
@@ -241,13 +491,14 @@ const HomePage = () => {
             </Stack>
           </Box>
 
-          {/* Input Area - fixed at bottom */}
-          <Paper sx={{ p: 2, flexShrink: 0 }} elevation={3}>
+          {/* Input Area - fixed at bottom, narrower */}
+          <Paper sx={{ p: 1.5, flexShrink: 0, maxWidth: 800, mx: 'auto', width: '100%' }} elevation={3}>
             <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-end' }}>
               <TextField
                 multiline
                 maxRows={4}
                 fullWidth
+                size="small"
                 placeholder={
                   activeTab === 0
                     ? '输入您的问题...'
