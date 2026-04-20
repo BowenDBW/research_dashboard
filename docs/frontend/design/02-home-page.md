@@ -1,166 +1,221 @@
-# 02 — 主页（HomePage）
+# 主页设计
 
-## 页面概述
-
-主页是用户进入应用后的首屏，包含三个核心区域：左侧可折叠菜单栏（爬虫状态 + 历史对话 + 设置入口）、中央 AI 对话/搜索区域、右侧常驻工具栏。中央区域通过 `Tabs` 组件实现三种模式切换：AI 对话、AI搜索推荐、文章逐章总结。
-
-## 布局结构
+## 1. 页面结构
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│ HomePage                                                     │
-│ ┌────────────┐ ┌─────────────────────────┐ ┌─────────────┐ │
-│ │ SideDrawer │ │   Central Content       │ │ RightToolbar│ │
-│ │            │ │ ┌─────────────────────┐ │ │             │ │
-│ │ ┌────────┐ │ │ │  Tabs:              │ │ │ ┌─────────┐ │ │
-│ │ │文章检索│ │ │ │  [Chat] [Search]    │ │ │ │收藏夹   │ │ │
-│ │ │标题→   │ │ │ │  [Summary]          │ │ │ │文件树   │ │ │
-│ │ │------  │ │ │ ├─────────────────────┤ │ │ │       → │ │ │
-│ │ │最后爬取│ │ │ │                     │ │ │ ├─────────┤ │ │
-│ │ │文章总量│ │ │ │  Tab Content Panel  │ │ │ │本周历史 │ │ │
-│ │ ├────────┤ │ │ │                     │ │ │ │       → │ │ │
-│ │ │+ 新对话│ │ │ │  (ChatPanel /       │ │ │ ├─────────┤ │ │
-│ │ │------  │ │ │ │   PaperSearch /     │ │ │ │订阅设置 │ │ │
-│ │ │历史对话│ │ │ │   ChapterSummary)   │ │ │ └─────────┘ │ │
-│ │ │条目1   │ │ │ │                     │ │ │             │ │
-│ │ │条目2   │ │ │ │                     │ │ │             │ │
-│ │ │...     │ │ │ │                     │ │ │             │ │
-│ │ ├────────┤ │ │ └─────────────────────┘ │ │             │ │
-│ │ │⚙ 设置→│ │ │                         │ │             │ │
-│ │ │ v0.1.0 │ │ │                         │ │             │ │
-│ │ └────────┘ │ └─────────────────────────┘ └─────────────┘ │
-└─────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│  [AI 对话] [AI 搜索推荐] [文章总结]              [模型选择器] │
+├──────────────────────────────────────────────────────────────┤
+│                                                              │
+│                       内容区域                                │
+│                   (空状态或消息列表)                          │
+│                                                              │
+│                                                              │
+├──────────────────────────────────────────────────────────────┤
+│                    [输入框居中，最大800px]                    │
+└──────────────────────────────────────────────────────────────┘
 ```
 
-## 使用的 MUI 组件
+## 2. 三种对话模式
 
-| 组件 | 用途 |
-|------|------|
-| `Drawer` | 左侧可折叠菜单栏 |
-| `List` / `ListItem` / `ListItemButton` / `ListItemText` | 历史对话记录列表 |
-| `ListItemAvatar` | 对话条目前显示头像/图标 |
-| `Divider` | 分隔文章检索区、对话区、设置区 |
-| `Button` | 新建对话按钮 |
-| `Typography` | 爬虫状态文字、版本号 |
-| `IconButton` | 设置按钮、折叠按钮 |
-| `ArrowForward` (Icon) | 标题旁的箭头提示可跳转 |
-| `Tabs` / `Tab` | 三种模式切换（Chat / Search / Summary） |
-| `Box` | 各区域容器 |
-| `Container` | 中央内容区容器 |
-| `TextField` | 对话输入框 |
-| `TextareaAutosize` | 对话输入框（自适应高度） |
-| `Button` (Send) | 发送按钮 |
-| `Chip` | 对话中的标签显示 |
-| `Avatar` | 用户/AI 消息头像 |
-| `Stack` | 对话消息垂直排列 |
-| `Paper` | 对话消息气泡容器 |
-| `Skeleton` | AI 回复加载占位 |
-| `DatePicker` (来自 @mui/x-date-pickers) | AI搜索推荐 起止时间选择 |
-| `Autocomplete` | 文章标题输入 + 下拉候选 |
-| `CircularProgress` | AI 思考中进度指示 |
-| `Tooltip` | 按钮悬浮提示 |
-| `Badge` | 文章检索区的新文章数量徽标 |
-
-## 交互逻辑
-
-### 左侧 Drawer
-
-- **文章检索区**：顶部显示 "文章检索" 标题，右侧带 `ArrowForward` 图标，点击跳转至文章列表页。下方展示最后爬取时间（`Typography caption`）和文章总量（`Typography body2`）。
-- **新建对话按钮**：点击清空当前对话区，创建新的对话 session，调用 `useChatStore.createSession()`。
-- **历史对话列表**：每条记录为 `ListItemButton`，点击加载该 session 的对话历史。当前选中项高亮（`selected` 状态）。
-- **设置按钮**：底部 `IconButton`，右侧 `ArrowForward`，点击 `navigate('/settings')`。
-- **折叠/展开**：通过 `Drawer` 的 `variant="persistent"` 和 `open` 状态控制。折叠后仅显示图标列表。
-
-### 中央内容区 — Chat 模式
-
-- 输入区域位于底部，使用 `TextField`（`multiline`）+ `IconButton`（发送图标）组成。
-- 消息列表使用 `Stack` 纵向排列，用户消息右对齐（`Avatar` + `Paper`），AI 消息左对齐。
-- 发送后调用 `invoke('chat_send', { message, sessionId })` 与 Tauri 后端通信，后端将请求转发至大模型（云端或本地）。
-- AI 回复流式显示：后端通过 Tauri Event `chat:stream` 推送 token，前端逐步追加到消息内容。
-
-### 中央内容区 — AI搜索推荐 模式
-
-- 切换到该 Tab 后，输入区上方显示 `DatePicker` 起止时间选择（精确到天）。
-- 用户输入搜索需求后，发送至大模型，大模型返回匹配论文列表。
-- 搜索结果以 `Card` 列表展示，每张卡片包含论文标题、作者、摘要缩略、来源。
-
-### 中央内容区 — Chapter Summary 模式
-
-- 切换到该 Tab 后，显示 `Autocomplete` 输入框，输入文章标题部分后展示下拉候选。
-- 选择文章后点击发送，AI 对文章内容逐章总结。
-- 若从文章列表页跳转而来（携带 `articleId` query param），自动填入文章信息并触发总结，用户无需再次输入。
-
-### 右侧工具栏
-
-详见 [07-shared-components.md](./07-shared-components.md) 中 RightToolbar 组件设计。
-
-## 状态管理
+### 2.1 模式切换 Tab
 
 ```typescript
-// stores/useChatStore.ts
-interface ChatStore {
-  sessions: ChatSession[];
-  currentSessionId: string | null;
-  messages: Record<string, ChatMessage[]>;
-  createSession: () => string;
-  switchSession: (id: string) => void;
-  addMessage: (sessionId: string, msg: ChatMessage) => void;
-  appendStreamToken: (sessionId: string, token: string) => void;
+<Tabs value={activeTab} onChange={handleTabChange}>
+  <Tab icon={<ChatIcon />} label="AI 对话" iconPosition="start" />
+  <Tab icon={<SearchIcon />} label="AI 搜索推荐" iconPosition="start" />
+  <Tab icon={<SummarizeIcon />} label="文章总结" iconPosition="start" />
+</Tabs>
+```
+
+### 2.2 模式切换逻辑
+
+切换模式时自动创建新会话，不同模式间不共享对话历史：
+
+```typescript
+const handleTabChange = (_: React.SyntheticEvent, newValue: number) => {
+  const newMode = tabToMode[newValue];
+  const currentSession = sessions.find(s => s.id === currentSessionId);
+
+  // 如果当前会话有消息或模式不同，创建新会话
+  if (currentSession && (messages.length > 0 || currentSession.mode !== newMode)) {
+    createSession(newMode);
+  }
+
+  setActiveTab(newValue);
+};
+```
+
+### 2.3 各模式特殊元素
+
+| 模式 | 顶部附加元素 |
+|------|-------------|
+| AI 对话 | 无 |
+| AI 搜索推荐 | 日期范围选择器（开始日期、结束日期） |
+| 文章总结 | 文章选择器（Autocomplete） |
+
+## 3. 模型选择器
+
+### 3.1 显示格式
+
+```
+[☁ GPT-4o OpenAI ▼]
+```
+
+- 云端模型：☁ 云图标（蓝色）
+- 本地服务器：🖥 服务器图标（灰色）
+- Apple MLX：🍎 Apple 图标（灰色）
+
+### 3.2 下拉选项
+
+```
+┌─────────────────────────────┐
+│ ☁ GPT-4o          OpenAI   │
+│ ☁ Claude 3 Opus   Anthropic│
+│ 🖠 Llama 3        Ollama   │
+│ 🍎 Mistral-7B     MLX      │
+└─────────────────────────────┘
+```
+
+### 3.3 无模型时的状态
+
+显示"配置模型"按钮，点击打开设置对话框。
+
+## 4. 空状态设计
+
+每个模式有独立的欢迎界面：
+
+### 4.1 AI 对话
+
+```
+        ┌─────────────┐
+        │     💬      │
+        └─────────────┘
+      AI 智能对话
+
+与 AI 助手进行自然语言对话，探索学术问题、
+获取研究灵感和深入讨论您感兴趣的话题
+
+[概念解释] [研究灵感] [学术讨论]
+
+试试问："请解释一下 Transformer 的工作原理"
+```
+
+### 4.2 AI 搜索推荐
+
+```
+        ┌─────────────┐
+        │     🔍      │
+        └─────────────┘
+      AI 论文搜索
+
+用自然语言描述您的研究方向，AI 将为您智能
+推荐相关论文，支持多数据源联合检索
+
+[arXiv] [Semantic Scholar] [IEEE] [Springer]
+
+试试搜索："关于大语言模型推理能力的研究"
+```
+
+### 4.3 文章总结
+
+```
+        ┌─────────────┐
+        │     📝      │
+        └─────────────┘
+      文章逐章总结
+
+选择一篇论文，AI 将为您生成结构化的逐章总结，
+帮助您快速把握论文要点
+
+[摘要提取] [要点归纳] [关键发现]
+
+从上方选择文章或从收藏夹中打开论文开始总结
+```
+
+## 5. 消息列表
+
+### 5.1 消息渲染
+
+```typescript
+messages.map((msg) => (
+  <Box sx={{ display: 'flex', justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start' }}>
+    {msg.role === 'assistant' && <Avatar><SmartToyIcon /></Avatar>}
+    <Paper sx={{ maxWidth: '70%', bgcolor: msg.role === 'user' ? 'primary.light' : 'background.default' }}>
+      <Typography>{msg.content}</Typography>
+    </Paper>
+    {msg.role === 'user' && <Avatar><PersonIcon /></Avatar>}
+  </Box>
+));
+```
+
+### 5.2 自动滚动
+
+新消息添加后自动滚动到底部：
+
+```typescript
+const messagesEndRef = useRef<HTMLDivElement>(null);
+
+useEffect(() => {
+  messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+}, [messages]);
+```
+
+### 5.3 流式输出状态
+
+AI 回复生成中显示骨架屏加载状态：
+
+```typescript
+{isStreaming && (
+  <Box sx={{ display: 'flex', gap: 1 }}>
+    <Avatar sx={{ bgcolor: 'primary.main' }}><SmartToyIcon /></Avatar>
+    <Paper sx={{ p: 2 }}>
+      <Skeleton width={200} />
+    </Paper>
+  </Box>
+)}
+```
+
+## 6. 输入区域
+
+### 6.1 布局
+
+居中显示，最大宽度 800px：
+
+```typescript
+<Paper sx={{ maxWidth: 800, mx: 'auto', width: '100%' }} elevation={3}>
+  <Box sx={{ display: 'flex', gap: 1 }}>
+    <TextField multiline maxRows={4} fullWidth size="small" />
+    <IconButton color="primary">
+      <SendIcon />
+    </IconButton>
+  </Box>
+</Paper>
+```
+
+### 6.2 占位符文本
+
+| 模式 | 占位符 |
+|------|--------|
+| AI 对话 | "输入您的问题..." |
+| AI 搜索推荐 | "描述您想要查找的论文..." |
+| 文章总结 | "添加额外的总结要求..." |
+
+### 6.3 快捷键
+
+- Enter 发送消息
+- Shift + Enter 换行
+
+## 7. 类型定义
+
+```typescript
+interface ChatMode = 'chat' | 'paper_search' | 'chapter_summary';
+
+interface ModelOption {
+  id: string;
+  displayName: string;
+  providerName: string;
+  type: 'cloud' | 'local';
+  localType?: 'server' | 'mlx';
 }
-```
-
-- 爬虫状态通过 `invoke('get_crawler_status')` 获取，存入 `useArticleStore`。
-- 对话 session 持久化至 Tauri 本地 SQLite 数据库，通过后端 API 管理。
-
-## 与大模型交互入口
-
-主页的 AI 对话是核心入口，通过 Tauri `invoke` 调用后端统一的大模型接口：
-
-```
-用户输入 → invoke('chat_send', {message, mode, context})
-         → 后端判断云端/本地模型
-         → 流式返回 → listen('chat:stream', callback)
-```
-
-三种模式（Chat / Search / Summary）共用同一对话后端，通过 `mode` 参数区分上下文构建方式。
-
-## 组件树
-
-```
-HomePage
-├── SideDrawer (左侧)
-│   ├── Box (文章检索区)
-│   │   ├── Typography (标题 + ArrowForward → 文章列表)
-│   │   ├── Typography (最后爬取时间)
-│   │   └── Typography (文章总量)
-│   ├── Divider
-│   ├── Button (新建对话)
-│   ├── List (历史对话)
-│   │   └── ListItemButton × N
-│   │       ├── ListItemAvatar
-│   │       └── ListItemText
-│   ├── Divider
-│   ├── IconButton (设置 → ArrowForward)
-│   └── Typography (版本号)
-│
-├── Box (中央内容区)
-│   ├── Tabs [Chat | Search | Summary]
-│   ├── ChatPanel
-│   │   ├── Stack (消息列表)
-│   │   │   └── (Avatar + Paper) × N
-│   │   ├── Skeleton (加载占位)
-│   │   └── Box (输入区)
-│   │       ├── TextField (multiline)
-│   │       └── IconButton (发送)
-│   ├── PaperSearchPanel
-│   │   ├── Box (DatePicker × 2)
-│   │   ├── Stack (搜索结果)
-│   │   │   └── Card × N
-│   │   └── Box (输入区)
-│   └── ChapterSummaryPanel
-│       ├── Autocomplete (文章选择)
-│       ├── Stack (总结结果)
-│       └── Box (输入区)
-│
-└── RightToolbar (右侧，见 07-shared-components.md)
 ```

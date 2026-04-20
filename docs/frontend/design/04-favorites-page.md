@@ -1,135 +1,230 @@
-# 04 — 收藏文章列表页（FavoritesPage）
+# 收藏夹页面设计
 
-## 页面概述
-
-收藏页以文件管理器风格展示用户收藏的文章，支持文件夹层级结构。页面顶部包含面包屑导航、新建文件夹和返回按钮；下方是混合的文件夹和文件列表。支持丰富的右键菜单操作（新建文件夹、修改/删除/剪贴文件夹、取消收藏文件、粘贴文件夹）。
-
-## 布局结构
+## 1. 页面结构
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│ FavoritesPage                                                │
-│ ┌─────────────────────────────────────────────────────────┐ │
-│ │ AppBar: [← 返回] [新建文件夹]  [↑ 上一级]             │ │
-│ │ Breadcrumb: 根目录 > 文件夹A > 子文件夹B              │ │
-│ ├─────────────────────────────────────────────────────────┤ │
-│ │ List Area                                               │ │
-│ │ ┌─────────────────────────────────────────────────────┐│ │
-│ │ │ 📁 文件夹A                      [右键→修改/删除/剪贴]│ │
-│ │ ├─────────────────────────────────────────────────────┤│ │
-│ │ │ 📁 文件夹B                      [右键→修改/删除/剪贴]│ │
-│ │ ├─────────────────────────────────────────────────────┤│ │
-│ │ │ 📄 文章标题1        [▶展开]                        ││ │
-│ │ │   └ 展开详情: 标题/作者/来源                        ││ │
-│ │ │     [摘要][链接][收藏][下载][AI]                    ││ │
-│ │ ├─────────────────────────────────────────────────────┤│ │
-│ │ │ 📄 文章标题2        [▶展开]  [右键→取消收藏]       ││ │
-│ │ └─────────────────────────────────────────────────────┘│ │
-│ └─────────────────────────────────────────────────────────┘ │
-│ 右键空白处: [新建文件夹] [粘贴文件夹]                       │
-└─────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│  ← 收藏夹                                                    │
+├──────────────────────────────────────────────────────────────┤
+│  全部收藏 > 机器学习 > Transformer                           │
+├──────────────────────────────────────────────────────────────┤
+│                                                              │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐       │
+│  │ 📁 NLP       │  │ 📁 CV        │  │ 📄 Attention │       │
+│  │   3 篇       │  │   5 篇       │  │   Is All...  │       │
+│  └──────────────┘  └──────────────┘  └──────────────┘       │
+│                                                              │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐       │
+│  │ 📄 BERT      │  │ 📄 GPT-4     │  │ 📄 ViT       │       │
+│  │ Pre-train... │  │ Technical... │  │ Vision Tr... │       │
+│  └──────────────┘  └──────────────┘  └──────────────┘       │
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
 ```
 
-## 使用的 MUI 组件
+## 2. 文件夹导航
 
-| 组件 | 用途 |
-|------|------|
-| `AppBar` + `Toolbar` | 顶部操作栏 |
-| `Button` / `IconButton` | 新建文件夹、上一级、返回主页 |
-| `Breadcrumbs` | 文件夹路径导航，每一级可点击回退 |
-| `Link` | 面包屑中每一级路径项 |
-| `List` / `ListItem` / `ListItemButton` | 文件/文件夹列表 |
-| `ListItemIcon` | 文件夹/文件图标 |
-| `ListItemText` | 文件夹名/文章标题 |
-| `IconButton` | 展开文章详情、功能按钮 |
-| `Collapse` | 文章详情展开/收起动画 |
-| `Menu` / `MenuItem` | 右键上下文菜单 |
-| `Dialog` / `DialogTitle` / `DialogContent` / `DialogActions` | 确认删除/取消收藏弹窗、新建文件夹弹窗、修改文件夹名弹窗 |
-| `TextField` | 弹窗内输入文件夹名 |
-| `Button` | 弹窗确认/取消 |
-| `Typography` | 展开后的文章详情文字 |
-| `Chip` | 文章来源标签 |
-| `Tooltip` | 按钮提示 |
-| `Snackbar` | 操作反馈 |
-| `Divider` | 列表分隔线 |
-| `Folder` / `InsertDriveFile` / `Edit` / `Delete` / `ContentCut` / `ContentPaste` (Icon) | 各操作图标 |
-
-## 交互逻辑
-
-### 顶部操作栏
-
-- **返回主页**：`IconButton`（`ArrowBack`），`navigate('/')`。
-- **新建文件夹**：`Button`，弹出 `Dialog`，含 `TextField` 输入文件夹名，确认后调用 `invoke('create_folder', { parentId, name })`。
-- **上一级**：`IconButton`（`ArrowUpward`），根据面包屑路径回退一级。若已在根目录则 `disabled`。
-- **面包屑**：`Breadcrumbs`，每一级为 `Link`，点击跳转至对应文件夹。
-
-### 文件夹列表项
-
-- 单击进入文件夹，`navigate(`/favorites/${folderId}`)`。
-- 右键弹出 `Menu`，包含：
-  - **修改文件夹**：弹出 `Dialog`，含 `TextField` 修改文件夹名。
-  - **删除文件夹**：弹出确认 `Dialog`（"确认删除文件夹及其全部内容？"），确认后调用 `invoke('delete_folder', { folderId })`。
-  - **剪贴文件夹**：将 folderId 存入剪贴板状态 `useFavoriteStore.clipboard`，类型为 `cut`。
-
-### 文件列表项
-
-- 点击展开按钮（`IconButton` + `ExpandMore` 图标），`Collapse` 展开文章详情（标题、作者、来源）。
-- 展开后显示 5 个功能 `IconButton`（摘要、链接、收藏、下载、AI 总结），与文章列表页一致。
-- 右键弹出 `Menu`，包含：
-  - **取消收藏**：弹出确认 `Dialog`（"确认取消收藏该文章？"），确认后调用 `invoke('remove_favorite', { articleId })`。
-
-### 空白处右键
-
-- 通过 `ClickAwayListener` + `Popover` 或自定义 `ContextMenu` 组件实现。
-- 菜单项：
-  - **新建文件夹**：同顶部新建按钮逻辑。
-  - **粘贴文件夹**：检查 `useFavoriteStore.clipboard` 是否有内容，有则调用 `invoke('move_folder', { folderId, targetParentId })`，完成后清空剪贴板。
-
-## 状态管理
+### 2.1 面包屑导航
 
 ```typescript
-// stores/useFavoriteStore.ts
-interface FavoriteStore {
-  currentFolderId: string | null;
-  folderPath: FolderNode[];          // 面包屑路径
-  items: FavoriteItem[];             // 当前文件夹内容（混合文件夹+文件）
-  clipboard: { type: 'cut'; folderId: string } | null;
-  loading: boolean;
-  navigateToFolder: (folderId: string | null) => Promise<void>;
-  createFolder: (name: string) => Promise<void>;
-  renameFolder: (folderId: string, newName: string) => Promise<void>;
-  deleteFolder: (folderId: string) => Promise<void>;
-  cutFolder: (folderId: string) => void;
-  pasteFolder: (targetParentId: string) => Promise<void>;
-  removeFavorite: (articleId: string) => Promise<void>;
+<Breadcrumbs>
+  <Link onClick={() => navigate('/favorites')}>全部收藏</Link>
+  {folderPath.map((folder, index) => (
+    <Link key={folder.id} onClick={() => navigate(`/favorites/${folder.id}`)}>
+      {folder.name}
+    </Link>
+  ))}
+</Breadcrumbs>
+```
+
+### 2.2 文件夹路径
+
+通过 URL 参数传递当前文件夹 ID：
+
+```
+/favorites           # 根目录
+/favorites/folder-1  # folder-1 文件夹
+/favorites/folder-2  # folder-2 文件夹
+```
+
+## 3. 收藏项展示
+
+### 3.1 文件夹卡片
+
+```typescript
+<Card sx={{ cursor: 'pointer' }}>
+  <CardContent sx={{ textAlign: 'center' }}>
+    <FolderIcon sx={{ fontSize: 48, color: '#FFA726' }} />
+    <Typography variant="subtitle1">{folder.name}</Typography>
+    <Typography variant="body2" color="text.secondary">
+      {folder.children?.length || 0} 项
+    </Typography>
+  </CardContent>
+</Card>
+```
+
+### 3.2 文章卡片
+
+```typescript
+<Card sx={{ cursor: 'pointer' }}>
+  <CardContent sx={{ textAlign: 'center' }}>
+    <InsertDriveFileIcon sx={{ fontSize: 48, color: '#42A5F5' }} />
+    <Typography variant="subtitle1" noWrap>{article.title}</Typography>
+    <Typography variant="body2" color="text.secondary">
+      {article.authors?.join(', ')}
+    </Typography>
+  </CardContent>
+</Card>
+```
+
+### 3.3 网格布局
+
+```typescript
+<Box sx={{
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))',
+  gap: 2,
+}}>
+  {items.map((item) => (
+    item.type === 'folder' ? <FolderCard /> : <ArticleCard />
+  ))}
+</Box>
+```
+
+## 4. 文件夹结构
+
+### 4.1 数据结构
+
+```typescript
+interface FavoriteItem {
+  id: string;
+  name: string;
+  type: 'folder' | 'article';
+  article?: Article;        // 仅当 type === 'article' 时有值
+  children?: FavoriteItem[]; // 仅当 type === 'folder' 时有值
 }
 ```
 
-## 组件树
+### 4.2 层级限制
+
+- 最多支持 **三层** 文件夹嵌套
+- 第四层及以下不予显示
+
+### 4.3 示例数据
+
+```typescript
+const favoriteItems: FavoriteItem[] = [
+  {
+    id: 'folder-1',
+    name: '机器学习',
+    type: 'folder',
+    children: [
+      {
+        id: 'folder-1-1',
+        name: 'Transformer',
+        type: 'folder',
+        children: [
+          { id: 'article-1', name: 'Attention...', type: 'article', article: {...} },
+        ],
+      },
+    ],
+  },
+  { id: 'article-2', name: 'BERT...', type: 'article', article: {...} },
+];
+```
+
+## 5. 交互行为
+
+### 5.1 文件夹操作
+
+| 操作 | 行为 |
+|------|------|
+| 单击文件夹 | 进入该文件夹 |
+| 右键文件夹 | 显示上下文菜单（重命名、删除） |
+| 拖拽文件夹 | 移动到其他文件夹（可选功能） |
+
+### 5.2 文章操作
+
+| 操作 | 行为 |
+|------|------|
+| 单击文章 | 打开文章摘要弹窗 |
+| 右键文章 | 显示上下文菜单（移动、移除） |
+
+### 5.3 新建文件夹
+
+可通过页面右上角按钮或上下文菜单创建新文件夹。
+
+## 6. 右侧栏收藏夹模块
+
+### 6.1 树形展示
+
+在右侧栏以树形结构展示收藏夹：
 
 ```
-FavoritesPage
-├── AppBar + Toolbar
-│   ├── IconButton (返回 ArrowBack)
-│   ├── Button (新建文件夹)
-│   └── IconButton (上一级 ArrowUpward)
-├── Breadcrumbs
-│   └── Link × N (路径层级)
-├── List (混合列表)
-│   ├── FolderItem × N
-│   │   ├── ListItemIcon (Folder 图标)
-│   │   ├── ListItemText (文件夹名)
-│   │   └── ContextMenu [修改/删除/剪贴]
-│   └── FavoriteFileItem × N
-│       ├── ListItemButton
-│       ├── ListItemIcon (InsertDriveFile 图标)
-│       ├── ListItemText (文章标题)
-│       ├── IconButton (展开 ExpandMore)
-│       ├── Collapse (详情)
-│       │   ├── Typography (标题)
-│       │   ├── Typography (作者)
-│       │   ├── Chip (来源)
-│       │   └── ArticleActions (5 按钮，见 07-shared-components.md)
-│       └── ContextMenu [取消收藏]
-└── ContextMenu (空白处) [新建文件夹/粘贴]
+├─ 📁 机器学习
+│  ├─ 📁 Transformer
+│  │  └─ 📄 Attention Is All You Need
+│  └─ 📄 BERT
+└─ 📁 计算机视觉
+   └─ 📄 ViT
+```
+
+### 6.2 展开/收起
+
+点击文件夹图标展开/收起子项：
+
+```typescript
+const toggleFolder = (folderId: string) => {
+  setExpandedFolders((prev) => {
+    const newSet = new Set(prev);
+    if (newSet.has(folderId)) {
+      newSet.delete(folderId);
+    } else {
+      newSet.add(folderId);
+    }
+    return newSet;
+  });
+};
+```
+
+### 6.3 递归渲染
+
+```typescript
+const FavoriteItemRenderer = ({ items, level = 0 }) => {
+  if (level >= 3) return null;  // 最多三层
+
+  return items.map((item) => (
+    <Box key={item.id}>
+      <Box sx={{ pl: level * 1.5 }} onClick={() => handleItemClick(item)}>
+        {item.type === 'folder' ? <FolderIcon /> : <InsertDriveFileIcon />}
+        <Typography>{item.name}</Typography>
+      </Box>
+      {item.type === 'folder' && item.children && (
+        <Collapse in={expandedFolders.has(item.id)}>
+          <FavoriteItemRenderer items={item.children} level={level + 1} />
+        </Collapse>
+      )}
+    </Box>
+  ));
+};
+```
+
+## 7. 图标颜色
+
+| 类型 | 图标 | 颜色 |
+|------|------|------|
+| 文件夹 | FolderIcon | `#FFA726` (橙色) |
+| 文章 | InsertDriveFileIcon | `#42A5F5` (蓝色) |
+
+## 8. 空状态
+
+当文件夹为空或无收藏时：
+
+```typescript
+{items.length === 0 && (
+  <Box sx={{ textAlign: 'center', py: 6 }}>
+    <FolderIcon sx={{ fontSize: 64, color: 'text.disabled' }} />
+    <Typography color="text.secondary">暂无收藏内容</Typography>
+  </Box>
+)}
 ```
