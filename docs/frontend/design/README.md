@@ -1,46 +1,51 @@
-# Research Dashboard 前端详细设计方案
+# 前端设计文档
 
-> 技术栈：React 19 + Material UI v9.0 + Tauri v2 + TypeScript + Vite
-> 目标平台：桌面端（Windows / macOS / Linux），以桌面端为主
-> 输出日期：2026-04-19
-
----
+本目录包含 Research Dashboard（Claw）的前端设计文档。
 
 ## 文档索引
 
-本设计方案按职责拆分为以下子文档，实现时按需查阅对应文档即可：
+| 文档 | 描述 |
+|------|------|
+| [00-overview.md](./00-overview.md) | 技术栈、目录结构、路由、状态管理概览 |
+| [01-theme-and-layout.md](./01-theme-and-layout.md) | MUI 主题配置、三栏布局设计 |
+| [02-home-page.md](./02-home-page.md) | 主页三种对话模式、模型选择器、空状态设计 |
+| [03-article-list-page.md](./03-article-list-page.md) | 文章列表、搜索筛选、文章卡片 |
+| [04-favorites-page.md](./04-favorites-page.md) | 收藏夹树形结构、文件夹导航 |
+| [05-daily-page.md](./05-daily-page.md) | Claw 日报列表、Markdown 渲染、分页控制 |
+| [06-history-page.md](./06-history-page.md) | 阅读历史、对话历史、时间分组 |
+| [07-settings-dialog.md](./07-settings-dialog.md) | 设置对话框、大模型配置、无限循环问题解决 |
+| [08-shared-components.md](./08-shared-components.md) | MarkdownViewer、各种弹窗组件 |
+| [09-state-and-data.md](./09-state-and-data.md) | Zustand Store 设计、类型定义、数据流 |
+| [10-right-toolbar.md](./10-right-toolbar.md) | 右侧栏四个模块、颜色方案、交互设计 |
 
-| 序号 | 文档 | 内容 | 实现优先级 |
-|------|------|------|-----------|
-| 0 | [00-overview.md](./00-overview.md) | 技术选型、项目结构、架构分层、开发路线图 | 首先阅读 |
-| 1 | [01-theme-and-layout.md](./01-theme-and-layout.md) | 主题定制、全局布局壳、路由配置、响应式设计 | P0 — 基础框架 |
-| 2 | [02-home-page.md](./02-home-page.md) | 主页：左侧 Drawer + AI 三模式 + 右侧工具栏入口 | P0 — 核心页面 |
-| 3 | [03-article-list-page.md](./03-article-list-page.md) | 文章列表页：多维筛选 + 文章卡片 + 分页 | P1 |
-| 4 | [04-favorites-page.md](./04-favorites-page.md) | 收藏页：文件夹层级 + 右键菜单 + 面包屑导航 | P1 |
-| 5 | [05-settings-page.md](./05-settings-page.md) | 设置页：爬虫/应用/大模型配置 | P2 |
-| 6 | [06-history-page.md](./06-history-page.md) | 阅读历史页：时间线 + 行为筛选 | P2 |
-| 7 | [07-shared-components.md](./07-shared-components.md) | 公共组件：ArticleActions、RightToolbar、SubscriptionDialog、ContextMenu、ConfirmDialog | P0 — 跨页面复用 |
-| 8 | [08-state-and-data.md](./08-state-and-data.md) | Zustand Store 设计、数据流、持久化策略、Tauri Commands、TypeScript 类型定义 | P0 — 全局数据层 |
-| 9 | [09-extensibility.md](./09-extensibility.md) | 扩展性设计：数据源扩展、AI 功能扩展、插件化预留 | 参考 |
+## 需求文档
 
----
+- [Requirements.md](../Requirements.md) - 需求分析文档
 
-## 建议实现顺序
+## 快速开始
 
-```
-Phase 1 — 骨架搭建
-  00-overview → 01-theme-and-layout → 08-state-and-data（类型定义部分）
+### 安装依赖
 
-Phase 2 — 核心功能
-  07-shared-components → 02-home-page
-
-Phase 3 — 文章管理
-  03-article-list-page → 04-favorites-page → 06-history-page
-
-Phase 4 — 配置与完善
-  05-settings-page → 08-state-and-data（Store 完整实现） → 09-extensibility
+```bash
+npm install
 ```
 
----
+### 启动开发服务器
 
-*文档版本：v1.0 | 编写日期：2026-04-19 | 基于 Ruqirements.md v1.0 + Material UI v9.0 文档*
+```bash
+npm run dev
+```
+
+### 构建生产版本
+
+```bash
+npm run build
+```
+
+## 技术栈
+
+- React 18 + TypeScript
+- Material-UI v5
+- Zustand (状态管理)
+- React Router v6 (HashRouter)
+- Tauri (桌面壳)
