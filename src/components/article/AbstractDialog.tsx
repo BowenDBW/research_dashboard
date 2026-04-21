@@ -31,6 +31,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { Article, FavoriteItem } from '../../types';
 import { useFavoriteStore } from '../../stores/useFavoriteStore';
+import { useChatStore } from '../../stores/useChatStore';
 
 interface FolderItem {
   id: string | null;
@@ -66,6 +67,7 @@ export const AbstractDialog = ({
   const [snackbarMessage, setSnackbarMessage] = useState('');
 
   const { items, createFolder, addFavorite, removeFavorite } = useFavoriteStore();
+  const { createSession } = useChatStore();
 
   // 获取所有文件夹
   useEffect(() => {
@@ -92,7 +94,9 @@ export const AbstractDialog = ({
   };
 
   const handleAskAI = () => {
-    navigate(`/?tab=summary&articleId=${article.id}`);
+    // Create a new session with article info and switch to chapter_summary mode
+    createSession('chapter_summary', { articleId: article.id, articleTitle: article.title });
+    navigate('/');
     onClose();
   };
 

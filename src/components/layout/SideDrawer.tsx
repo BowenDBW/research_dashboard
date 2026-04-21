@@ -48,10 +48,15 @@ const DRAWER_WIDTH_COLLAPSED = 72;
 export const SideDrawer = ({ open, onToggle, onOpenSettings }: SideDrawerProps) => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { sessions, currentSessionId, createSession, switchSession, deleteSession } = useChatStore();
+  const { sessions, currentSessionId, createSession, switchSession, deleteSession, messages } = useChatStore();
   const { mode, toggleMode } = useThemeMode();
   const [menuAnchorEl, setMenuAnchorEl] = useState<null | HTMLElement>(null);
   const [menuSessionId, setMenuSessionId] = useState<string | null>(null);
+
+  // Filter sessions to only show those with messages, sorted by most recent
+  const sessionsWithMessages = sessions
+    .filter(session => messages[session.id] && messages[session.id].length > 0)
+    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
 
   const handleNewChat = () => {
     createSession('chat');
@@ -157,7 +162,7 @@ export const SideDrawer = ({ open, onToggle, onOpenSettings }: SideDrawerProps) 
 
         {/* Session List */}
         <List sx={{ flex: 1, overflow: 'auto' }} dense>
-          {sessions.map((session) => (
+          {sessionsWithMessages.map((session) => (
             <ListItem
               key={session.id}
               disablePadding

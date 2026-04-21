@@ -37,14 +37,14 @@ src/
 │   │   ├── ArticleCard.tsx
 │   │   ├── ArticleActions.tsx
 │   │   └── AbstractDialog.tsx
-│   └── daily/             # 日报相关组件
-│       └── DailyReportDialog.tsx
+│   └── daily/             # 推荐相关组件
+│       └── DailyRecommendationDialog.tsx
 ├── pages/                 # 页面组件
 │   ├── HomePage/          # 主页
 │   ├── ArticleListPage/   # 文章列表
 │   ├── FavoritesPage/     # 收藏夹
 │   ├── HistoryPage/       # 历史记录
-│   ├── DailyPage/         # Claw 日报
+│   ├── DailyPage/         # Google 推荐
 │   └── SettingsPage/      # 设置页（已废弃，改用对话框）
 ├── stores/                # Zustand 状态管理
 │   ├── useChatStore.ts
@@ -97,7 +97,7 @@ const router = createHashRouter([
 | useArticleStore | 文章数据与搜索 |
 | useFavoriteStore | 收藏夹树形结构 |
 | useHistoryStore | 阅读与对话历史 |
-| useDailyStore | Claw 日报数据 |
+| useDailyStore | Google 推荐数据 |
 | useSettingsStore | 应用设置（主题、模型配置等） |
 | useSubscriptionStore | 订阅关键词与作者 |
 
@@ -109,7 +109,7 @@ const router = createHashRouter([
 | [02-home-page](./02-home-page.md) | 主页与 AI 对话 |
 | [03-article-list-page](./03-article-list-page.md) | 文章列表页 |
 | [04-favorites-page](./04-favorites-page.md) | 收藏夹页面 |
-| [05-daily-page](./05-daily-page.md) | Claw 日报页面 |
+| [05-daily-page](./05-daily-page.md) | Google 推荐页面 |
 | [06-history-page](./06-history-page.md) | 历史记录页面 |
 | [07-settings-dialog](./07-settings-dialog.md) | 设置对话框 |
 | [08-shared-components](./08-shared-components.md) | 共享组件 |

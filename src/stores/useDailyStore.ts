@@ -1,150 +1,167 @@
 import { create } from 'zustand';
-import { DailyReport, DailyReportListItem } from '../types';
+import { DailyRecommendation, DailyRecommendationListItem } from '../types';
+import { Article } from '../types';
 
 interface DailyStore {
-  reports: DailyReportListItem[];
-  currentReport: DailyReport | null;
+  recommendations: DailyRecommendationListItem[];
+  currentRecommendation: DailyRecommendation | null;
   loading: boolean;
-  totalReports: number;
+  totalRecommendations: number;
 
   // Actions
-  fetchReports: (page: number, pageSize: number, searchMonth?: string) => Promise<void>;
-  fetchReportById: (id: string) => Promise<DailyReport | null>;
-  getRecentReports: () => DailyReportListItem[];
+  fetchRecommendations: (page: number, pageSize: number, searchMonth?: string) => Promise<void>;
+  fetchRecommendationById: (id: string) => Promise<DailyRecommendation | null>;
+  getRecentRecommendations: () => DailyRecommendationListItem[];
 }
 
-// Mock data for prototype
-const mockReports: DailyReportListItem[] = [
+// Mock articles for recommendations
+const mockArticles: Article[] = [
   {
-    id: 'daily-2024-01-15',
-    date: '2024-01-15',
-    title: '深度学习优化方法新进展',
-    summary: '今日收录 12 篇论文，涵盖优化器改进、学习率调度、梯度压缩等领域',
-    articleCount: 12,
+    id: '1',
+    title: 'Attention Is All You Need',
+    authors: ['Vaswani et al.'],
+    source: 'arXiv',
+    sourceType: 'arxiv',
+    publishDate: '2017',
+    abstract: 'The dominant sequence transduction models are based on complex recurrent or convolutional neural networks that include an encoder and a decoder. The best performing models also connect the encoder and decoder through an attention mechanism. We propose a new simple network architecture, the Transformer, based solely on attention mechanisms, dispensing with recurrence and convolutions entirely.',
+    url: 'https://arxiv.org/abs/1706.03762',
+    pdfUrl: 'https://arxiv.org/pdf/1706.03762',
+    domains: ['cs.LG', 'cs.CL'],
+    isFavorited: false,
+    metadata: {},
   },
   {
-    id: 'daily-2024-01-14',
-    date: '2024-01-14',
-    title: '大语言模型推理加速技术',
-    summary: '今日收录 8 篇论文，包括量化、剪枝、知识蒸馏等推理优化方法',
-    articleCount: 8,
+    id: '2',
+    title: 'BERT: Pre-training of Deep Bidirectional Transformers',
+    authors: ['Devlin et al.'],
+    source: 'arXiv',
+    sourceType: 'arxiv',
+    publishDate: '2018',
+    abstract: 'We introduce a new language representation model called BERT, which stands for Bidirectional Encoder Representations from Transformers. Unlike recent language representation models, BERT is designed to pre-train deep bidirectional representations from unlabeled text.',
+    url: 'https://arxiv.org/abs/1810.04805',
+    pdfUrl: 'https://arxiv.org/pdf/1810.04805',
+    domains: ['cs.CL'],
+    isFavorited: true,
+    metadata: {},
   },
   {
-    id: 'daily-2024-01-13',
-    date: '2024-01-13',
-    title: '多模态学习前沿进展',
-    summary: '今日收录 15 篇论文，涉及视觉-语言模型、音频处理、跨模态对齐等',
-    articleCount: 15,
+    id: '3',
+    title: 'GPT-4 Technical Report',
+    authors: ['OpenAI'],
+    source: 'arXiv',
+    sourceType: 'arxiv',
+    publishDate: '2023',
+    abstract: 'We report the development of GPT-4, a large-scale, multimodal model which can accept image and text inputs and produce text outputs. While less capable than humans in many real-world scenarios, GPT-4 exhibits human-level performance on various professional and academic benchmarks.',
+    url: 'https://arxiv.org/abs/2303.08774',
+    pdfUrl: 'https://arxiv.org/pdf/2303.08774',
+    domains: ['cs.AI', 'cs.CL'],
+    isFavorited: false,
+    metadata: {},
   },
   {
-    id: 'daily-2024-01-12',
-    date: '2024-01-12',
-    title: '图神经网络应用研究',
-    summary: '今日收录 10 篇论文，涵盖分子图学习、社交网络分析、推荐系统等应用',
-    articleCount: 10,
+    id: '4',
+    title: 'LoRA: Low-Rank Adaptation of Large Language Models',
+    authors: ['Hu et al.'],
+    source: 'arXiv',
+    sourceType: 'arxiv',
+    publishDate: '2021',
+    abstract: 'We propose Low-Rank Adaptation, or LoRA, which freezes the pre-trained model weights and injects trainable rank decomposition matrices into each layer of the Transformer architecture, greatly reducing the number of trainable parameters for downstream tasks.',
+    url: 'https://arxiv.org/abs/2106.09685',
+    pdfUrl: 'https://arxiv.org/pdf/2106.09685',
+    domains: ['cs.LG', 'cs.CL'],
+    isFavorited: false,
+    metadata: {},
   },
   {
-    id: 'daily-2024-01-11',
-    date: '2024-01-11',
-    title: '注意力机制改进研究',
-    summary: '今日收录 9 篇论文，包括线性注意力、稀疏注意力、高效Transformer变体',
-    articleCount: 9,
+    id: '5',
+    title: 'Chain-of-Thought Prompting Elicits Reasoning',
+    authors: ['Wei et al.'],
+    source: 'arXiv',
+    sourceType: 'arxiv',
+    publishDate: '2022',
+    abstract: 'We explore how generating a chain of thought—a series of intermediate reasoning steps—significantly improves the ability of large language models to perform complex reasoning. We show that chain-of-thought prompting improves performance on a range of arithmetic, commonsense, and symbolic reasoning tasks.',
+    url: 'https://arxiv.org/abs/2201.11903',
+    pdfUrl: 'https://arxiv.org/pdf/2201.11903',
+    domains: ['cs.AI', 'cs.CL'],
+    isFavorited: false,
+    metadata: {},
   },
   {
-    id: 'daily-2024-01-10',
-    date: '2024-01-10',
-    title: '强化学习算法突破',
-    summary: '今日收录 11 篇论文，涵盖模型预测控制、策略优化、探索策略改进',
-    articleCount: 11,
+    id: '6',
+    title: 'Constitutional AI: Harmlessness from AI Feedback',
+    authors: ['Bai et al.'],
+    source: 'arXiv',
+    sourceType: 'arxiv',
+    publishDate: '2022',
+    abstract: 'As AI systems become more capable, we would like to enlist their help to supervise other AI agents. We explore methods for training AI systems to be helpful and harmless through a process called Constitutional AI.',
+    url: 'https://arxiv.org/abs/2212.08073',
+    pdfUrl: 'https://arxiv.org/pdf/2212.08073',
+    domains: ['cs.AI', 'cs.LG'],
+    isFavorited: false,
+    metadata: {},
   },
   {
-    id: 'daily-2024-01-09',
-    date: '2024-01-09',
-    title: '自然语言生成技术',
-    summary: '今日收录 7 篇论文，涉及文本生成质量评估、可控生成、长文本生成',
-    articleCount: 7,
+    id: '7',
+    title: 'Vision Transformer: An Image is Worth 16x16 Words',
+    authors: ['Dosovitskiy et al.'],
+    source: 'arXiv',
+    sourceType: 'arxiv',
+    publishDate: '2020',
+    abstract: 'While the Transformer architecture has become the de-facto standard for natural language processing tasks, its applications to computer vision remain limited. In vision, attention is either applied in conjunction with convolutional networks, or used to replace certain components of convolutional networks while keeping their overall structure in place. We show that this reliance on CNNs is not necessary and a pure transformer applied directly to sequences of image patches can perform very well on image classification tasks.',
+    url: 'https://arxiv.org/abs/2010.11929',
+    pdfUrl: 'https://arxiv.org/pdf/2010.11929',
+    domains: ['cs.CV', 'cs.LG'],
+    isFavorited: false,
+    metadata: {},
   },
   {
-    id: 'daily-2024-01-08',
-    date: '2024-01-08',
-    title: '计算机视觉新架构',
-    summary: '今日收录 14 篇论文，包括Vision Transformer改进、卷积网络优化等',
-    articleCount: 14,
+    id: '8',
+    title: 'DALL-E: Zero-Shot Text-to-Image Generation',
+    authors: ['Ramesh et al.'],
+    source: 'arXiv',
+    sourceType: 'arxiv',
+    publishDate: '2021',
+    abstract: 'Text-to-image generation has traditionally focused on finding better modeling assumptions for training on a fixed dataset. We present DALL·E, a transformer that generates images from text tokens, achieving zero-shot performance competitive with state-of-the-art models.',
+    url: 'https://arxiv.org/abs/2102.12092',
+    pdfUrl: 'https://arxiv.org/pdf/2102.12092',
+    domains: ['cs.CV', 'cs.LG'],
+    isFavorited: false,
+    metadata: {},
   },
 ];
 
-const mockReportContent = `# 深度学习优化方法新进展
+// Helper to get random subset of articles
+const getRandomArticles = (count: number): Article[] => {
+  const shuffled = [...mockArticles].sort(() => 0.5 - Math.random());
+  return shuffled.slice(0, count);
+};
 
-**日期**: 2024-01-15
+// Mock data for prototype
+const mockRecommendations: DailyRecommendationListItem[] = [
+  { id: 'rec-2024-01-15', date: '2024-01-15', articleCount: 6 },
+  { id: 'rec-2024-01-14', date: '2024-01-14', articleCount: 4 },
+  { id: 'rec-2024-01-13', date: '2024-01-13', articleCount: 8 },
+  { id: 'rec-2024-01-12', date: '2024-01-12', articleCount: 5 },
+  { id: 'rec-2024-01-11', date: '2024-01-11', articleCount: 7 },
+  { id: 'rec-2024-01-10', date: '2024-01-10', articleCount: 6 },
+  { id: 'rec-2024-01-09', date: '2024-01-09', articleCount: 4 },
+  { id: 'rec-2024-01-08', date: '2024-01-08', articleCount: 5 },
+];
 
-## 概述
-
-今日 Claw 共收录 **12 篇** 与深度学习优化相关的高质量论文，涵盖以下几个主要方向：
-
-- 优化器改进
-- 学习率调度策略
-- 梯度压缩与通信优化
-- 自适应训练方法
-
-## 重点论文推荐
-
-### 1. AdamW 的收敛性分析与改进
-
-**论文链接**: [arXiv:2401.01234](https://arxiv.org/abs/2401.01234)
-
-本文对 AdamW 优化器进行了严格的理论分析，证明了其在非凸优化问题上的收敛性。作者提出了一种改进的权重衰减策略，在保持收敛性的同时提高了泛化性能。
-
-**核心贡献**:
-- 首次给出 AdamW 的收敛性证明
-- 提出自适应权重衰减策略
-- 在 ImageNet 和 GLUE 基准上验证有效性
-
-### 2. 学习率预热的必要性研究
-
-**论文链接**: [arXiv:2401.05678](https://arxiv.org/abs/2401.05678)
-
-本研究深入分析了学习率预热对训练稳定性的影响，发现在大模型训练中，预热阶段对于避免早期训练崩溃至关重要。
-
-**核心发现**:
-- 预热阶段帮助初始化更好的梯度估计
-- 推导出最小预热长度的理论下界
-- 提出动态预热策略
-
-## 其他收录论文
-
-3. **梯度压缩中的误差补偿机制** - 提出新的误差补偿方法，显著提升分布式训练效率
-4. **AdaBelief 在 NLP 任务上的表现** - 分析 AdaBelief 与 Adam 在 Transformer 训练中的差异
-5. **动量方法的方差缩减** - 理论分析动量对方差缩减的贡献
-6. **二阶优化方法的实用改进** - 降低 K-FAC 的计算开销
-7. **学习率调度的自动化** - 基于验证集反馈的自动调度
-8. **梯度噪声与泛化的关系** - 实验验证梯度噪声对泛化的影响
-9. **批量大小自适应训练** - 动态调整批量大小的策略
-10. **混合精度训练的稳定性分析** - 解决 FP16 训练中的数值问题
-11. **分布式训练中的通信压缩** - 新的拓扑感知压缩算法
-12. **学习率衰减策略的比较研究** - 余弦衰减 vs 线性衰减的实证比较
-
-## 总结
-
-今日收录的论文为深度学习优化领域提供了新的理论见解和实用方法。特别是对 AdamW 的收敛性分析和学习率预热的理论研究，为大模型训练提供了重要指导。
-
----
-
-*由 Claw 智能生成*`;
-
-export const useDailyStore = create<DailyStore>((set, get) => ({
-  reports: mockReports,
-  currentReport: null,
+export const useDailyStore = create<DailyStore>((set) => ({
+  recommendations: mockRecommendations,
+  currentRecommendation: null,
   loading: false,
-  totalReports: mockReports.length,
+  totalRecommendations: mockRecommendations.length,
 
-  fetchReports: async (page: number, pageSize: number, searchMonth?: string) => {
+  fetchRecommendations: async (page: number, pageSize: number, searchMonth?: string) => {
     set({ loading: true });
     await new Promise((resolve) => setTimeout(resolve, 300));
 
-    let filtered = mockReports;
+    let filtered = mockRecommendations;
     if (searchMonth) {
       // Filter by month prefix (YYYY-MM)
-      filtered = mockReports.filter((r) => r.date.startsWith(searchMonth));
+      filtered = mockRecommendations.filter((r) => r.date.startsWith(searchMonth));
     }
 
     const start = (page - 1) * pageSize;
@@ -152,34 +169,34 @@ export const useDailyStore = create<DailyStore>((set, get) => ({
     const paginated = filtered.slice(start, end);
 
     set({
-      reports: paginated,
-      totalReports: filtered.length,
+      recommendations: paginated,
+      totalRecommendations: filtered.length,
       loading: false,
     });
   },
 
-  fetchReportById: async (id: string) => {
+  fetchRecommendationById: async (id: string) => {
     set({ loading: true });
     await new Promise((resolve) => setTimeout(resolve, 200));
 
-    const reportItem = mockReports.find((r) => r.id === id);
-    if (!reportItem) {
-      set({ loading: false, currentReport: null });
+    const recItem = mockRecommendations.find((r) => r.id === id);
+    if (!recItem) {
+      set({ loading: false, currentRecommendation: null });
       return null;
     }
 
-    const report: DailyReport = {
-      ...reportItem,
-      content: mockReportContent,
-      createdAt: `${reportItem.date}T00:00:00`,
-      updatedAt: `${reportItem.date}T00:00:00`,
+    const recommendation: DailyRecommendation = {
+      ...recItem,
+      articles: getRandomArticles(recItem.articleCount),
+      createdAt: `${recItem.date}T00:00:00`,
+      updatedAt: `${recItem.date}T00:00:00`,
     };
 
-    set({ currentReport: report, loading: false });
-    return report;
+    set({ currentRecommendation: recommendation, loading: false });
+    return recommendation;
   },
 
-  getRecentReports: () => {
-    return mockReports.slice(0, 5);
+  getRecentRecommendations: () => {
+    return mockRecommendations.slice(0, 5);
   },
 }));

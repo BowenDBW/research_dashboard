@@ -36,6 +36,7 @@ import {
   AutoAwesome as AutoAwesomeIcon,
   MenuBook as MenuBookIcon,
   Lightbulb as LightbulbIcon,
+  Close as CloseIcon,
 } from '@mui/icons-material';
 import dayjs from 'dayjs';
 import { useChatStore } from '../../stores/useChatStore';
@@ -115,18 +116,18 @@ const tabToMode: Record<number, ChatMode> = {
 const HomePage = () => {
   const { openSettings } = useOutletContext<OutletContext>();
   const [searchParams] = useSearchParams();
-  const tabFromUrl = searchParams.get('tab');
-  const articleIdFromUrl = searchParams.get('articleId');
+  const sessionIdFromUrl = searchParams.get('sessionId');
 
-  const [activeTab, setActiveTab] = useState(tabFromUrl === 'summary' ? 2 : tabFromUrl === 'search' ? 1 : 0);
+  const [activeTab, setActiveTab] = useState(0);
   const [inputValue, setInputValue] = useState('');
   const [searchStartDate, setSearchStartDate] = useState<dayjs.Dayjs | null>(null);
   const [searchEndDate, setSearchEndDate] = useState<dayjs.Dayjs | null>(dayjs());
   const [selectedArticle, setSelectedArticle] = useState<Article | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const initializedRef = useRef(false);
 
-  const { getCurrentMessages, addMessage, currentSessionId, sessions, createSession } = useChatStore();
+  const { getCurrentMessages, addMessage, currentSessionId, sessions, createSession, switchSession } = useChatStore();
   const { settings, updateSettings } = useSettingsStore();
   const messages = getCurrentMessages();
 
@@ -162,11 +163,36 @@ const HomePage = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isStreaming]);
 
+  // Initialize: create default session if none exists
+  useEffect(() => {
+    if (!initializedRef.current) {
+      initializedRef.current = true;
+
+      if (sessionIdFromUrl) {
+        // Switch to the session from URL if it exists
+        const sessionExists = sessions.find(s => s.id === sessionIdFromUrl);
+        if (sessionExists) {
+          switchSession(sessionIdFromUrl);
+        }
+      } else if (!currentSessionId) {
+        // No current session, create a new empty chat session
+        createSession('chat');
+      }
+    }
+  }, [sessionIdFromUrl, sessions, currentSessionId, createSession, switchSession]);
+
   // Update tab when session changes
   useEffect(() => {
     const session = sessions.find(s => s.id === currentSessionId);
     if (session) {
       setActiveTab(modeToTab[session.mode]);
+      // Update selected article for chapter_summary mode
+      if (session.mode === 'chapter_summary' && session.articleId) {
+        const article = ARTICLE_OPTIONS.find(a => a.id === session.articleId);
+        if (article) {
+          setSelectedArticle(article);
+        }
+      }
     }
   }, [currentSessionId, sessions]);
 
@@ -176,19 +202,34 @@ const HomePage = () => {
 
     // If current session has messages or different mode, create new session
     if (currentSession && (messages.length > 0 || currentSession.mode !== newMode)) {
-      createSession(newMode);
+      // For chapter_summary mode, pass article info if available
+      if (newMode === 'chapter_summary' && selectedArticle) {
+        createSession(newMode, { articleId: selectedArticle.id, articleTitle: selectedArticle.title });
+      } else {
+        createSession(newMode);
+      }
     } else if (currentSession && currentSession.mode === newMode) {
       // Same mode, just update tab
       setActiveTab(newValue);
     } else {
       // No current session, create new one
-      createSession(newMode);
+      if (newMode === 'chapter_summary' && selectedArticle) {
+        createSession(newMode, { articleId: selectedArticle.id, articleTitle: selectedArticle.title });
+      } else {
+        createSession(newMode);
+      }
     }
     setActiveTab(newValue);
   };
 
   const handleModelChange = (event: SelectChangeEvent) => {
     updateSettings({ selectedModelId: event.target.value });
+  };
+
+  const handleResetArticle = () => {
+    setSelectedArticle(null);
+    // Create a new empty chapter_summary session
+    createSession('chapter_summary');
   };
 
   const handleSend = () => {
@@ -404,38 +445,58 @@ const HomePage = () => {
           )}
 
           {/* Chapter Summary: Article Selection */}
-          {activeTab === 2 && !articleIdFromUrl && (
+          {activeTab === 2 && (
             <Box sx={{ mb: 2, flexShrink: 0, display: 'flex', justifyContent: 'center' }}>
-              <Autocomplete
-                options={ARTICLE_OPTIONS}
-                getOptionLabel={(option) => option.title}
-                value={selectedArticle}
-                onChange={(_, newValue) => setSelectedArticle(newValue)}
-                sx={{ width: 400, maxWidth: '50%' }}
-                renderInput={(params) => (
-                  <TextField
-                    {...params}
-                    label="选择文章"
-                    placeholder="输入文章标题..."
+              {selectedArticle ? (
+                <Paper sx={{ px: 2, py: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Typography variant="body2" color="text.secondary">
+                    当前文章:
+                  </Typography>
+                  <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                    {selectedArticle.title}
+                  </Typography>
+                  <Chip
+                    label={selectedArticle.id}
                     size="small"
+                    variant="outlined"
+                    sx={{ fontSize: '0.7rem' }}
                   />
-                )}
-                renderOption={(props, option) => {
-                  const { key, ...otherProps } = props as any;
-                  return (
-                    <li key={key} {...otherProps}>
-                      <Box>
-                        <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                          {option.title}
-                        </Typography>
-                        <Typography variant="caption" color="text.secondary">
-                          {option.authors.join(', ')} · {option.source} · {option.publishDate}
-                        </Typography>
-                      </Box>
-                    </li>
-                  );
-                }}
-              />
+                  <IconButton size="small" onClick={handleResetArticle} title="重置">
+                    <CloseIcon fontSize="small" />
+                  </IconButton>
+                </Paper>
+              ) : (
+                <Autocomplete
+                  options={ARTICLE_OPTIONS}
+                  getOptionLabel={(option) => option.title}
+                  value={selectedArticle}
+                  onChange={(_, newValue) => setSelectedArticle(newValue)}
+                  sx={{ width: 400, maxWidth: '50%' }}
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      label="选择文章"
+                      placeholder="输入文章标题..."
+                      size="small"
+                    />
+                  )}
+                  renderOption={(props, option) => {
+                    const { key, ...otherProps } = props as any;
+                    return (
+                      <li key={key} {...otherProps}>
+                        <Box>
+                          <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                            {option.title}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            {option.authors.join(', ')} · {option.source} · {option.publishDate}
+                          </Typography>
+                        </Box>
+                      </li>
+                    );
+                  }}
+                />
+              )}
             </Box>
           )}
 

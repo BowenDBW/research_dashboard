@@ -8,7 +8,7 @@
 
 ```
 ┌──────────────────────┐
-│ Claw 日报       →    │  第一个模块
+│ Google 推荐     →    │  第一个模块
 ├──────────────────────┤
 │ 收藏夹          →    │  第二个模块
 ├──────────────────────┤
@@ -43,7 +43,7 @@
 
 | 顺序 | 模块名称 | 功能描述 |
 |------|----------|----------|
-| 1 | Claw 日报 | 每日论文推荐报告 |
+| 1 | Google 推荐 | 基于 Google Scholar 的每日推荐文章 |
 | 2 | 收藏夹 | 三层文件夹结构 |
 | 3 | 历史记录 | 阅读历史 + 对话历史 |
 | 4 | 订阅设置 | 关键词与作者订阅 |
@@ -52,7 +52,7 @@
 
 | 模块 | 标题图标颜色 | 内容图标颜色 |
 |------|-------------|-------------|
-| Claw 日报 | `#C5E1A5` (淡黄绿) | `#9CCC65` (黄绿) |
+| Google 推荐 | `#C5E1A5` (淡黄绿) | `#9CCC65` (黄绿) |
 | 收藏夹 | `#BBDEFB` (淡蓝) | 文件夹 `#FFA726`，文件 `#42A5F5` |
 | 历史记录 | `#FFCDD2` (淡红) | - |
 | 订阅设置 | `#B39DDB` (淡紫) | - |
@@ -99,7 +99,7 @@ const handlePanelToggle = (panel: string) => {
 
 支持同时展开多个面板，不互斥。
 
-## 4. Claw 日报模块
+## 4. Google 推荐模块
 
 ### 4.1 标题栏
 
@@ -108,7 +108,7 @@ const handlePanelToggle = (panel: string) => {
   <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
       <NewspaperIcon sx={{ color: '#C5E1A5' }} />
-      <Typography variant="subtitle2">Claw 日报</Typography>
+      <Typography variant="subtitle2">Google 推荐</Typography>
     </Box>
     <IconButton onClick={() => navigate('/daily')}>
       <ArrowForwardIcon />
@@ -119,15 +119,15 @@ const handlePanelToggle = (panel: string) => {
 
 ### 4.2 内容列表
 
-显示最近 5 条日报：
+显示最近 5 条推荐，每条显示日期和文章数量：
 
 ```typescript
 <AccordionDetails sx={{ maxHeight: 200, overflow: 'auto' }}>
-  {recentReports.map((report) => (
-    <Box onClick={() => handleDailyClick(report.id)}>
+  {recentRecommendations.map((rec) => (
+    <Box onClick={() => handleRecommendationClick(rec.id)}>
       <CalendarIcon sx={{ color: '#9CCC65', fontSize: 16 }} />
-      <Typography variant="caption">{report.date}</Typography>
-      <Typography variant="body2">{report.title}</Typography>
+      <Typography variant="body2">{rec.date}</Typography>
+      <Chip label={`${rec.articleCount} 篇`} size="small" />
     </Box>
   ))}
 </AccordionDetails>
@@ -135,7 +135,7 @@ const handlePanelToggle = (panel: string) => {
 
 ### 4.3 点击行为
 
-点击日报项打开 DailyReportDialog 弹窗。
+点击推荐项打开 DailyRecommendationDialog 弹窗，展示文章卡片列表。
 
 ## 5. 收藏夹模块
 

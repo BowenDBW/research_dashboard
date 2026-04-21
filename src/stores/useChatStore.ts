@@ -5,7 +5,7 @@ interface ChatStore {
   sessions: ChatSession[];
   currentSessionId: string | null;
   messages: Record<string, ChatMessage[]>;
-  createSession: (mode?: ChatMode) => string;
+  createSession: (mode?: ChatMode, articleInfo?: { articleId: string; articleTitle: string }) => string;
   switchSession: (id: string) => void;
   deleteSession: (id: string) => void;
   addMessage: (sessionId: string, msg: ChatMessage) => void;
@@ -14,59 +14,20 @@ interface ChatStore {
 }
 
 export const useChatStore = create<ChatStore>((set, get) => ({
-  sessions: [
-    {
-      id: 'session-1',
-      title: '关于 Transformer 的讨论',
-      mode: 'chat',
-      createdAt: '2024-01-10T10:00:00',
-      updatedAt: '2024-01-10T10:30:00',
-    },
-    {
-      id: 'session-2',
-      title: '论文搜索：深度学习',
-      mode: 'paper_search',
-      createdAt: '2024-01-09T15:00:00',
-      updatedAt: '2024-01-09T15:20:00',
-    },
-  ],
-  currentSessionId: 'session-1',
-  messages: {
-    'session-1': [
-      {
-        id: 'msg-1',
-        sessionId: 'session-1',
-        role: 'user',
-        content: '请解释一下 Transformer 的工作原理',
-        timestamp: '2024-01-10T10:00:00',
-      },
-      {
-        id: 'msg-2',
-        sessionId: 'session-1',
-        role: 'assistant',
-        content: 'Transformer 是一种基于自注意力机制的神经网络架构。它通过多头注意力机制来处理序列数据，能够并行计算，相比 RNN 更高效。',
-        timestamp: '2024-01-10T10:01:00',
-      },
-    ],
-    'session-2': [
-      {
-        id: 'msg-3',
-        sessionId: 'session-2',
-        role: 'user',
-        content: '搜索关于深度学习的最新论文',
-        timestamp: '2024-01-09T15:00:00',
-      },
-    ],
-  },
+  sessions: [],
+  currentSessionId: null,
+  messages: {},
 
-  createSession: (mode = 'chat') => {
+  createSession: (mode = 'chat', articleInfo?: { articleId: string; articleTitle: string }) => {
     const id = `session-${Date.now()}`;
     const newSession: ChatSession = {
       id,
-      title: '新对话',
+      title: articleInfo ? `总结: ${articleInfo.articleTitle}` : '新对话',
       mode,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
+      articleId: articleInfo?.articleId,
+      articleTitle: articleInfo?.articleTitle,
     };
     set((state) => ({
       sessions: [...state.sessions, newSession],
@@ -101,12 +62,20 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   },
 
   addMessage: (sessionId, msg) => {
-    set((state) => ({
-      messages: {
-        ...state.messages,
-        [sessionId]: [...(state.messages[sessionId] || []), msg],
-      },
-    }));
+    set((state) => {
+      // Update session's updatedAt timestamp
+      const updatedSessions = state.sessions.map(s =>
+        s.id === sessionId ? { ...s, updatedAt: new Date().toISOString() } : s
+      );
+
+      return {
+        sessions: updatedSessions,
+        messages: {
+          ...state.messages,
+          [sessionId]: [...(state.messages[sessionId] || []), msg],
+        },
+      };
+    });
   },
 
   appendStreamToken: (sessionId, token) => {

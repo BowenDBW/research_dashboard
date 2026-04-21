@@ -28,25 +28,25 @@ import {
 } from '@mui/icons-material';
 import dayjs from 'dayjs';
 import { useDailyStore } from '../../stores/useDailyStore';
-import { DailyReportDialog } from '../../components/daily/DailyReportDialog';
+import { DailyRecommendationDialog } from '../../components/daily/DailyRecommendationDialog';
 
 const PAGE_SIZE_OPTIONS = [5, 10, 20] as const;
 
 const DailyPage = () => {
   const navigate = useNavigate();
-  const { reports, totalReports, loading, fetchReports } = useDailyStore();
+  const { recommendations, totalRecommendations, loading, fetchRecommendations } = useDailyStore();
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(5);
   const [searchMonth, setSearchMonth] = useState<dayjs.Dayjs | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
+  const [selectedRecommendationId, setSelectedRecommendationId] = useState<string | null>(null);
 
   useEffect(() => {
     const monthStr = searchMonth ? searchMonth.format('YYYY-MM') : undefined;
-    fetchReports(page, pageSize, monthStr);
-  }, [page, pageSize, searchMonth, fetchReports]);
+    fetchRecommendations(page, pageSize, monthStr);
+  }, [page, pageSize, searchMonth, fetchRecommendations]);
 
-  const totalPages = Math.ceil(totalReports / pageSize);
+  const totalPages = Math.ceil(totalRecommendations / pageSize);
 
   const handlePageChange = (_: React.ChangeEvent<unknown>, value: number) => {
     setPage(value);
@@ -62,14 +62,14 @@ const DailyPage = () => {
     setPage(1);
   };
 
-  const handleReportClick = (id: string) => {
-    setSelectedReportId(id);
+  const handleRecommendationClick = (id: string) => {
+    setSelectedRecommendationId(id);
     setDialogOpen(true);
   };
 
   const handleDialogClose = () => {
     setDialogOpen(false);
-    setSelectedReportId(null);
+    setSelectedRecommendationId(null);
   };
 
   return (
@@ -82,7 +82,7 @@ const DailyPage = () => {
               <ArrowBackIcon />
             </IconButton>
             <Typography variant="h6" sx={{ ml: 2 }}>
-              Claw 日报
+              Google 推荐
             </Typography>
             <Box sx={{ flex: 1 }} />
             <DatePicker
@@ -103,26 +103,25 @@ const DailyPage = () => {
         {/* Content */}
         <Container maxWidth="sm" sx={{ py: 2, flex: 1, overflow: 'auto', pb: 8 }}>
 
-          {/* Report List */}
+          {/* Recommendation List */}
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
             {loading ? (
               Array.from({ length: pageSize }).map((_, i) => (
                 <Card key={i}>
                   <CardContent>
                     <Skeleton width="60%" />
-                    <Skeleton width="80%" />
                     <Skeleton width="40%" />
                   </CardContent>
                 </Card>
               ))
-            ) : reports.length === 0 ? (
+            ) : recommendations.length === 0 ? (
               <Box sx={{ textAlign: 'center', py: 6 }}>
-                <Typography color="text.secondary">暂无日报</Typography>
+                <Typography color="text.secondary">暂无推荐</Typography>
               </Box>
             ) : (
-              reports.map((report) => (
+              recommendations.map((rec) => (
                 <Card
-                  key={report.id}
+                  key={rec.id}
                   sx={{
                     cursor: 'pointer',
                     transition: 'all 0.2s',
@@ -131,30 +130,24 @@ const DailyPage = () => {
                       transform: 'translateY(-2px)',
                     },
                   }}
-                  onClick={() => handleReportClick(report.id)}
+                  onClick={() => handleRecommendationClick(rec.id)}
                 >
                   <CardContent>
-                    <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', mb: 1 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                         <CalendarIcon fontSize="small" color="action" />
-                        <Typography variant="body2" color="text.secondary">
-                          {report.date}
+                        <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+                          {rec.date}
                         </Typography>
                       </Box>
                       <Chip
                         icon={<ArticleIcon />}
-                        label={`${report.articleCount} 篇`}
+                        label={`${rec.articleCount} 篇`}
                         size="small"
                         variant="outlined"
                         color="primary"
                       />
                     </Box>
-                    <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 0.5 }}>
-                      {report.title}
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary" sx={{ lineHeight: 1.6 }}>
-                      {report.summary}
-                    </Typography>
                   </CardContent>
                 </Card>
               ))
@@ -203,10 +196,10 @@ const DailyPage = () => {
           </Box>
         )}
 
-        {/* Report Dialog */}
-        <DailyReportDialog
+        {/* Recommendation Dialog */}
+        <DailyRecommendationDialog
           open={dialogOpen}
-          reportId={selectedReportId}
+          recommendationId={selectedRecommendationId}
           onClose={handleDialogClose}
         />
       </Box>

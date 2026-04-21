@@ -27,13 +27,16 @@ import {
   Chat as ChatIcon,
   Newspaper as NewspaperIcon,
   CalendarToday as CalendarIcon,
+  Search as SearchIcon,
+  Summarize as SummarizeIcon,
 } from '@mui/icons-material';
 import { useFavoriteStore } from '../../stores/useFavoriteStore';
 import { useHistoryStore } from '../../stores/useHistoryStore';
 import { useDailyStore } from '../../stores/useDailyStore';
+import { DailyRecommendationDialog } from '../daily/DailyRecommendationDialog';
+import { useChatStore } from '../../stores/useChatStore';
 import { SubscriptionDialog } from '../common/SubscriptionDialog';
 import { AbstractDialog } from '../article/AbstractDialog';
-import { DailyReportDialog } from '../daily/DailyReportDialog';
 import { FavoriteItem, Article } from '../../types';
 
 interface RightToolbarProps {
@@ -145,7 +148,8 @@ export const RightToolbar = ({ open, onToggle }: RightToolbarProps) => {
   const navigate = useNavigate();
   const { items } = useFavoriteStore();
   const { records } = useHistoryStore();
-  const { getRecentReports } = useDailyStore();
+  const { getRecentRecommendations } = useDailyStore();
+  const { sessions, messages } = useChatStore();
   const [subscriptionDialogOpen, setSubscriptionDialogOpen] = useState(false);
   const [expandedPanels, setExpandedPanels] = useState<string[]>([]);
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
@@ -153,24 +157,25 @@ export const RightToolbar = ({ open, onToggle }: RightToolbarProps) => {
   const [selectedArticle, setSelectedArticle] = useState<Article | null>(null);
   const [selectedArticleFavorited, setSelectedArticleFavorited] = useState(false);
   const [historyType, setHistoryType] = useState<'reading' | 'chat'>('reading');
-  const [dailyDialogOpen, setDailyDialogOpen] = useState(false);
-  const [selectedDailyId, setSelectedDailyId] = useState<string | null>(null);
+  const [recommendationDialogOpen, setRecommendationDialogOpen] = useState(false);
+  const [selectedRecommendationId, setSelectedRecommendationId] = useState<string | null>(null);
 
-  const recentReports = getRecentReports();
+  const recentRecommendations = getRecentRecommendations();
 
-  // Mock chat history data
-  const chatHistory = [
-    { id: 'ch1', mode: 'chat', title: '关于 Transformer 架构的讨论' },
-    { id: 'ch2', mode: 'paper_search', title: '搜索注意力机制相关论文' },
-    { id: 'ch3', mode: 'chapter_summary', title: 'Attention Is All You Need 总结' },
-    { id: 'ch4', mode: 'chat', title: 'GPT-4 与 Claude 对比' },
-    { id: 'ch5', mode: 'paper_search', title: '检索深度学习优化方法' },
-  ];
+  // Get chat sessions with messages (most recent first)
+  const chatHistory = sessions
+    .filter(session => messages[session.id] && messages[session.id].length > 0)
+    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+    .slice(0, 5);
 
   const getChatModeIcon = (mode: string) => {
     switch (mode) {
       case 'chat':
         return <ChatIcon sx={{ fontSize: 16 }} />;
+      case 'paper_search':
+        return <SearchIcon sx={{ fontSize: 16 }} />;
+      case 'chapter_summary':
+        return <SummarizeIcon sx={{ fontSize: 16 }} />;
       default:
         return <InsertDriveFileIcon sx={{ fontSize: 16 }} />;
     }
@@ -209,14 +214,14 @@ export const RightToolbar = ({ open, onToggle }: RightToolbarProps) => {
     setSelectedArticleFavorited(isFavorited);
   };
 
-  const handleDailyClick = (id: string) => {
-    setSelectedDailyId(id);
-    setDailyDialogOpen(true);
+  const handleRecommendationClick = (id: string) => {
+    setSelectedRecommendationId(id);
+    setRecommendationDialogOpen(true);
   };
 
-  const handleDailyDialogClose = () => {
-    setDailyDialogOpen(false);
-    setSelectedDailyId(null);
+  const handleRecommendationDialogClose = () => {
+    setRecommendationDialogOpen(false);
+    setSelectedRecommendationId(null);
   };
 
   // Get recent history (last 7 days)
@@ -266,7 +271,7 @@ export const RightToolbar = ({ open, onToggle }: RightToolbarProps) => {
           scrollbarGutter: 'stable',
         }}
       >
-        {/* Claw Daily - First */}
+        {/* Google Recommendations - First */}
         <Accordion
           expanded={expandedPanels.includes('daily')}
           onChange={() => handlePanelToggle('daily')}
@@ -276,7 +281,7 @@ export const RightToolbar = ({ open, onToggle }: RightToolbarProps) => {
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', pr: 1 }}>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                 <NewspaperIcon fontSize="small" sx={{ color: '#C5E1A5' }} />
-                <Typography variant="subtitle2">Claw 日报</Typography>
+                <Typography variant="subtitle2">Google 推荐</Typography>
               </Box>
               <IconButton
                 size="small"
@@ -291,12 +296,12 @@ export const RightToolbar = ({ open, onToggle }: RightToolbarProps) => {
           </AccordionSummary>
           <AccordionDetails sx={{ pt: 0, px: 0.5, maxHeight: 200, overflow: 'auto' }}>
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
-              {recentReports.map((report) => (
+              {recentRecommendations.map((rec) => (
                 <Box
-                  key={report.id}
+                  key={rec.id}
                   sx={{
                     display: 'flex',
-                    alignItems: 'flex-start',
+                    alignItems: 'center',
                     gap: 0.5,
                     py: 0.5,
                     px: 1,
@@ -304,17 +309,19 @@ export const RightToolbar = ({ open, onToggle }: RightToolbarProps) => {
                     cursor: 'pointer',
                     '&:hover': { bgcolor: 'action.hover' },
                   }}
-                  onClick={() => handleDailyClick(report.id)}
+                  onClick={() => handleRecommendationClick(rec.id)}
                 >
-                  <CalendarIcon sx={{ color: '#9CCC65', fontSize: 16, mt: 0.25 }} />
-                  <Box sx={{ flex: 1, minWidth: 0 }}>
-                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                      {report.date}
-                    </Typography>
-                    <Typography variant="body2" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {report.title}
-                    </Typography>
-                  </Box>
+                  <CalendarIcon sx={{ color: '#9CCC65', fontSize: 16 }} />
+                  <Typography variant="body2" sx={{ flex: 1 }}>
+                    {rec.date}
+                  </Typography>
+                  <Chip
+                    icon={<InsertDriveFileIcon sx={{ fontSize: 14 }} />}
+                    label={`${rec.articleCount} 篇`}
+                    size="small"
+                    variant="outlined"
+                    sx={{ height: 20, fontSize: '0.65rem' }}
+                  />
                 </Box>
               ))}
             </Box>
@@ -398,56 +405,68 @@ export const RightToolbar = ({ open, onToggle }: RightToolbarProps) => {
             {historyType === 'reading' ? (
               /* Reading History */
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
-                {recentRecords.map((record) => (
-                  <Box
-                    key={record.id}
-                    sx={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 0.5,
-                      py: 0.5,
-                      px: 1,
-                      borderRadius: 1,
-                      cursor: 'pointer',
-                      '&:hover': { bgcolor: 'action.hover' },
-                    }}
-                    onClick={() => handleArticleClick(record.article)}
-                  >
-                    <InsertDriveFileIcon sx={{ color: '#42A5F5', fontSize: 18 }} />
-                    <Tooltip title={record.article.title} placement="top" arrow enterDelay={500}>
-                      <Typography variant="body2" sx={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {record.article.title}
-                      </Typography>
-                    </Tooltip>
-                  </Box>
-                ))}
+                {recentRecords.length > 0 ? (
+                  recentRecords.map((record) => (
+                    <Box
+                      key={record.id}
+                      sx={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 0.5,
+                        py: 0.5,
+                        px: 1,
+                        borderRadius: 1,
+                        cursor: 'pointer',
+                        '&:hover': { bgcolor: 'action.hover' },
+                      }}
+                      onClick={() => handleArticleClick(record.article)}
+                    >
+                      <InsertDriveFileIcon sx={{ color: '#42A5F5', fontSize: 18 }} />
+                      <Tooltip title={record.article.title} placement="top" arrow enterDelay={500}>
+                        <Typography variant="body2" sx={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {record.article.title}
+                        </Typography>
+                      </Tooltip>
+                    </Box>
+                  ))
+                ) : (
+                  <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 2 }}>
+                    暂无阅读历史
+                  </Typography>
+                )}
               </Box>
             ) : (
               /* Chat History */
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
-                {chatHistory.map((chat) => (
-                  <Box
-                    key={chat.id}
-                    sx={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 0.5,
-                      py: 0.5,
-                      px: 1,
-                      borderRadius: 1,
-                      cursor: 'pointer',
-                      '&:hover': { bgcolor: 'action.hover' },
-                    }}
-                    onClick={() => navigate(`/?sessionId=${chat.id}`)}
-                  >
-                    {getChatModeIcon(chat.mode)}
-                    <Tooltip title={chat.title} placement="top" arrow enterDelay={500}>
-                      <Typography variant="body2" sx={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {chat.title}
-                      </Typography>
-                    </Tooltip>
-                  </Box>
-                ))}
+                {chatHistory.length > 0 ? (
+                  chatHistory.map((chat) => (
+                    <Box
+                      key={chat.id}
+                      sx={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 0.5,
+                        py: 0.5,
+                        px: 1,
+                        borderRadius: 1,
+                        cursor: 'pointer',
+                        '&:hover': { bgcolor: 'action.hover' },
+                      }}
+                      onClick={() => navigate(`/?sessionId=${chat.id}`)}
+                    >
+                      {getChatModeIcon(chat.mode)}
+                      <Tooltip title={chat.title} placement="top" arrow enterDelay={500}>
+                        <Typography variant="body2" sx={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {chat.title}
+                        </Typography>
+                      </Tooltip>
+                    </Box>
+                  ))
+                ) : (
+                  <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 2 }}>
+                    暂无对话历史
+                  </Typography>
+                )}
               </Box>
             )}
           </AccordionDetails>
@@ -501,11 +520,11 @@ export const RightToolbar = ({ open, onToggle }: RightToolbarProps) => {
         onFavoriteChange={handleFavoriteChange}
       />
 
-      {/* Daily Report Dialog */}
-      <DailyReportDialog
-        open={dailyDialogOpen}
-        reportId={selectedDailyId}
-        onClose={handleDailyDialogClose}
+      {/* Daily Recommendation Dialog */}
+      <DailyRecommendationDialog
+        open={recommendationDialogOpen}
+        recommendationId={selectedRecommendationId}
+        onClose={handleRecommendationDialogClose}
       />
 
       {/* Toggle Button */}

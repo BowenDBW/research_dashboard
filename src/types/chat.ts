@@ -6,6 +6,9 @@ export interface ChatSession {
   mode: ChatMode;
   createdAt: string;
   updatedAt: string;
+  // Context for chapter_summary mode
+  articleId?: string;
+  articleTitle?: string;
 }
 
 export interface ChatMessage {
