@@ -1,6 +1,7 @@
 import { Card, CardContent, Typography, Chip, Box, IconButton, Tooltip } from '@mui/material';
 import { AutoAwesome as AutoAwesomeIcon } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { Article } from '../../types';
 import { ArticleActions } from './ArticleActions';
 
@@ -10,6 +11,7 @@ interface ArticleCardProps {
 
 export const ArticleCard = ({ article }: ArticleCardProps) => {
   const navigate = useNavigate();
+  const { t } = useTranslation();
 
   const handleAiSummary = () => {
     navigate(`/?tab=summary&articleId=${article.id}`);
@@ -36,7 +38,7 @@ export const ArticleCard = ({ article }: ArticleCardProps) => {
               {article.title}
             </Typography>
           </Tooltip>
-          <Tooltip title="AI 总结">
+          <Tooltip title={t('article.aiSummary')} arrow>
             <IconButton
               size="small"
               onClick={handleAiSummary}
@@ -45,7 +47,7 @@ export const ArticleCard = ({ article }: ArticleCardProps) => {
             >
               <AutoAwesomeIcon sx={{ fontSize: 16 }} />
               <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
-                ASK AI
+                {t('article.askAI')}
               </Typography>
             </IconButton>
           </Tooltip>

@@ -39,6 +39,7 @@ import {
   Close as CloseIcon,
 } from '@mui/icons-material';
 import dayjs from 'dayjs';
+import { useTranslation } from 'react-i18next';
 import { useChatStore } from '../../stores/useChatStore';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { Article, ChatMode } from '../../types';
@@ -115,6 +116,7 @@ const tabToMode: Record<number, ChatMode> = {
 
 const HomePage = () => {
   const { openSettings } = useOutletContext<OutletContext>();
+  const { t } = useTranslation();
   const [searchParams] = useSearchParams();
   const sessionIdFromUrl = searchParams.get('sessionId');
 
@@ -163,7 +165,7 @@ const HomePage = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isStreaming]);
 
-  // Initialize: create default session if none exists
+  // Initialize: create new session on home page load
   useEffect(() => {
     if (!initializedRef.current) {
       initializedRef.current = true;
@@ -173,13 +175,13 @@ const HomePage = () => {
         const sessionExists = sessions.find(s => s.id === sessionIdFromUrl);
         if (sessionExists) {
           switchSession(sessionIdFromUrl);
+          return;
         }
-      } else if (!currentSessionId) {
-        // No current session, create a new empty chat session
-        createSession('chat');
       }
+      // Always create a new empty chat session when entering home page
+      createSession('chat');
     }
-  }, [sessionIdFromUrl, sessions, currentSessionId, createSession, switchSession]);
+  }, [sessionIdFromUrl, sessions, createSession, switchSession]);
 
   // Update tab when session changes
   useEffect(() => {
@@ -279,18 +281,18 @@ const HomePage = () => {
             <ChatIcon sx={{ fontSize: 40 }} />
           </Avatar>
           <Typography variant="h5" gutterBottom sx={{ fontWeight: 600, color: 'primary.main' }}>
-            AI 智能对话
+            {t('homePage.aiChat.title')}
           </Typography>
           <Typography variant="body1" color="text.secondary" sx={{ mb: 3, maxWidth: 500, mx: 'auto' }}>
-            与 AI 助手进行自然语言对话，探索学术问题、获取研究灵感和深入讨论您感兴趣的话题
+            {t('homePage.aiChat.description')}
           </Typography>
           <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center', flexWrap: 'wrap' }}>
-            <Chip icon={<LightbulbIcon />} label="概念解释" variant="outlined" size="small" />
-            <Chip icon={<AutoAwesomeIcon />} label="研究灵感" variant="outlined" size="small" />
-            <Chip icon={<MenuBookIcon />} label="学术讨论" variant="outlined" size="small" />
+            <Chip icon={<LightbulbIcon />} label={t('homePage.aiChat.chips.conceptExplain')} variant="outlined" size="small" />
+            <Chip icon={<AutoAwesomeIcon />} label={t('homePage.aiChat.chips.researchInspiration')} variant="outlined" size="small" />
+            <Chip icon={<MenuBookIcon />} label={t('homePage.aiChat.chips.academicDiscussion')} variant="outlined" size="small" />
           </Box>
           <Typography variant="body2" color="text.secondary" sx={{ mt: 3 }}>
-            试试问：<i>"请解释一下 Transformer 的工作原理"</i>
+            {t('homePage.aiChat.tryAsk')}<i>"{t('homePage.tryExamples.transformer')}"</i>
           </Typography>
         </Box>
       );
@@ -301,10 +303,10 @@ const HomePage = () => {
             <SearchIcon sx={{ fontSize: 40 }} />
           </Avatar>
           <Typography variant="h5" gutterBottom sx={{ fontWeight: 600, color: 'secondary.main' }}>
-            AI 论文搜索
+            {t('homePage.aiSearch.title')}
           </Typography>
           <Typography variant="body1" color="text.secondary" sx={{ mb: 3, maxWidth: 500, mx: 'auto' }}>
-            用自然语言描述您的研究方向，AI 将为您智能推荐相关论文，支持多数据源联合检索
+            {t('homePage.aiSearch.description')}
           </Typography>
           <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center', flexWrap: 'wrap' }}>
             <Chip label="arXiv" size="small" color="primary" variant="outlined" />
@@ -313,7 +315,7 @@ const HomePage = () => {
             <Chip label="Springer" size="small" color="primary" variant="outlined" />
           </Box>
           <Typography variant="body2" color="text.secondary" sx={{ mt: 3 }}>
-            试试搜索：<i>"关于大语言模型推理能力的研究"</i>
+            {t('homePage.aiSearch.trySearch')}<i>"{t('homePage.tryExamples.llmReasoning')}"</i>
           </Typography>
         </Box>
       );
@@ -324,18 +326,18 @@ const HomePage = () => {
             <SummarizeIcon sx={{ fontSize: 40 }} />
           </Avatar>
           <Typography variant="h5" gutterBottom sx={{ fontWeight: 600, color: 'warning.dark' }}>
-            文章逐章总结
+            {t('homePage.chapterSummary.title')}
           </Typography>
           <Typography variant="body1" color="text.secondary" sx={{ mb: 3, maxWidth: 500, mx: 'auto' }}>
-            选择一篇论文，AI 将为您生成结构化的逐章总结，帮助您快速把握论文要点
+            {t('homePage.chapterSummary.description')}
           </Typography>
           <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center', flexWrap: 'wrap' }}>
-            <Chip icon={<MenuBookIcon />} label="摘要提取" variant="outlined" size="small" />
-            <Chip icon={<AutoAwesomeIcon />} label="要点归纳" variant="outlined" size="small" />
-            <Chip icon={<LightbulbIcon />} label="关键发现" variant="outlined" size="small" />
+            <Chip icon={<MenuBookIcon />} label={t('homePage.chapterSummary.chips.abstractExtract')} variant="outlined" size="small" />
+            <Chip icon={<AutoAwesomeIcon />} label={t('homePage.chapterSummary.chips.keyPoints')} variant="outlined" size="small" />
+            <Chip icon={<LightbulbIcon />} label={t('homePage.chapterSummary.chips.keyFindings')} variant="outlined" size="small" />
           </Box>
           <Typography variant="body2" color="text.secondary" sx={{ mt: 3 }}>
-            从上方选择文章或从收藏夹中打开论文开始总结
+            {t('homePage.chapterSummary.selectHint')}
           </Typography>
         </Box>
       );
@@ -355,9 +357,9 @@ const HomePage = () => {
               scrollButtons={false}
               sx={{ minHeight: 40, '& .MuiTab-root': { minHeight: 40, py: 0.5, px: 2, minWidth: 'auto' } }}
             >
-              <Tab icon={<ChatIcon />} label="AI 对话" iconPosition="start" />
-              <Tab icon={<SearchIcon />} label="AI搜索推荐" iconPosition="start" />
-              <Tab icon={<SummarizeIcon />} label="文章总结" iconPosition="start" />
+              <Tab icon={<ChatIcon />} label={t('chat.aiChat')} iconPosition="start" />
+              <Tab icon={<SearchIcon />} label={t('chat.aiSearchRecommend')} iconPosition="start" />
+              <Tab icon={<SummarizeIcon />} label={t('chat.chapterSummary')} iconPosition="start" />
             </Tabs>
 
             {/* Model Selector */}
@@ -368,9 +370,9 @@ const HomePage = () => {
                   onChange={handleModelChange}
                   displayEmpty
                   renderValue={(value) => {
-                    if (!value) return <Typography variant="body2" color="text.secondary">选择模型</Typography>;
+                    if (!value) return <Typography variant="body2" color="text.secondary">{t('homePage.selectModel')}</Typography>;
                     const model = modelOptions.find(m => m.id === value);
-                    if (!model) return <Typography variant="body2">选择模型</Typography>;
+                    if (!model) return <Typography variant="body2">{t('homePage.selectModel')}</Typography>;
                     return (
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                         {model.type === 'cloud' ? (
@@ -417,7 +419,7 @@ const HomePage = () => {
                   onClick={openSettings}
                   sx={{ height: 32, whiteSpace: 'nowrap' }}
                 >
-                  配置模型
+                  {t('homePage.configureModel')}
                 </Button>
               )}
             </FormControl>
@@ -430,13 +432,13 @@ const HomePage = () => {
           {activeTab === 1 && (
             <Box sx={{ mb: 2, display: 'flex', gap: 2, flexShrink: 0 }}>
               <MuiDatePicker
-                label="开始日期"
+                label={t('articles.startDate')}
                 value={searchStartDate}
                 onChange={(newValue) => setSearchStartDate(newValue)}
                 slotProps={{ textField: { size: 'small' } }}
               />
               <MuiDatePicker
-                label="结束日期"
+                label={t('articles.endDate')}
                 value={searchEndDate}
                 onChange={(newValue) => setSearchEndDate(newValue)}
                 slotProps={{ textField: { size: 'small' } }}
@@ -450,7 +452,7 @@ const HomePage = () => {
               {selectedArticle ? (
                 <Paper sx={{ px: 2, py: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
                   <Typography variant="body2" color="text.secondary">
-                    当前文章:
+                    {t('homePage.currentArticle')}
                   </Typography>
                   <Typography variant="body2" sx={{ fontWeight: 500 }}>
                     {selectedArticle.title}
@@ -461,7 +463,7 @@ const HomePage = () => {
                     variant="outlined"
                     sx={{ fontSize: '0.7rem' }}
                   />
-                  <IconButton size="small" onClick={handleResetArticle} title="重置">
+                  <IconButton size="small" onClick={handleResetArticle} title={t('common.close')}>
                     <CloseIcon fontSize="small" />
                   </IconButton>
                 </Paper>
@@ -475,8 +477,8 @@ const HomePage = () => {
                   renderInput={(params) => (
                     <TextField
                       {...params}
-                      label="选择文章"
-                      placeholder="输入文章标题..."
+                      label={t('homePage.selectArticle')}
+                      placeholder={t('homePage.articlePlaceholder')}
                       size="small"
                     />
                   )}
@@ -562,10 +564,10 @@ const HomePage = () => {
                 size="small"
                 placeholder={
                   activeTab === 0
-                    ? '输入您的问题...'
+                    ? t('homePage.inputPlaceholder.chat')
                     : activeTab === 1
-                    ? '描述您想要查找的论文...'
-                    : '添加额外的总结要求...'
+                    ? t('homePage.inputPlaceholder.search')
+                    : t('homePage.inputPlaceholder.summary')
                 }
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}

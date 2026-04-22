@@ -28,13 +28,15 @@ import {
   Search as SearchIcon,
 } from '@mui/icons-material';
 import dayjs from 'dayjs';
+import { useTranslation } from 'react-i18next';
 import { useArticleStore } from '../../stores/useArticleStore';
+import { useSettingsStore } from '../../stores/useSettingsStore';
 import { ArticleCard } from '../../components/article/ArticleCard';
-
-const DOMAIN_OPTIONS = ['cs.LG', 'cs.AI', 'cs.CL', 'cs.CV', 'cs.NE', 'cs.RO', 'cs.SE', 'stat.ML'];
 
 const ArticleListPage = () => {
   const navigate = useNavigate();
+  const { t } = useTranslation();
+  const { settings } = useSettingsStore();
   const {
     articles,
     totalCount,
@@ -55,6 +57,7 @@ const ArticleListPage = () => {
   const [endDate, setEndDate] = useState<dayjs.Dayjs | null>(null);
   const [showArxivOnly, setShowArxivOnly] = useState(false);
   const [showSubscribedOnly, setShowSubscribedOnly] = useState(false);
+  const [prevShowArxivOnly, setPrevShowArxivOnly] = useState(false);
 
   useEffect(() => {
     fetchArticles();
@@ -88,28 +91,32 @@ const ArticleListPage = () => {
               <ArrowBackIcon />
             </IconButton>
             <Typography variant="h6" noWrap>
-              文章列表
+              {t('articles.title')}
             </Typography>
             <Box sx={{ flex: 1 }} />
-            <Tooltip title="显示 arXiv 文章" arrow>
+            <Tooltip title={t('articles.showArxiv')} arrow>
               <FormControlLabel
                 control={
                   <Switch
                     checked={showArxivOnly}
                     onChange={(e) => {
-                      setShowArxivOnly(e.target.checked);
-                      if (!e.target.checked) {
+                      const checked = e.target.checked;
+                      setShowArxivOnly(checked);
+                      if (checked) {
+                        // 打开时默认全选已配置的 crawler categories
+                        setLocalDomains([...settings.crawlerCategories]);
+                      } else {
                         setLocalDomains([]);
                       }
                     }}
                     size="small"
                   />
                 }
-                label={<Typography variant="body2" noWrap>arXiv</Typography>}
+                label={<Typography variant="body2" noWrap>{t('articles.arxiv')}</Typography>}
                 sx={{ mr: 0.5 }}
               />
             </Tooltip>
-            <Tooltip title="仅显示订阅文章" arrow>
+            <Tooltip title={t('articles.showSubscribed')} arrow>
               <FormControlLabel
                 control={
                   <Switch
@@ -118,17 +125,17 @@ const ArticleListPage = () => {
                     size="small"
                   />
                 }
-                label={<Typography variant="body2" noWrap>订阅</Typography>}
+                label={<Typography variant="body2" noWrap>{t('articles.subscribed')}</Typography>}
                 sx={{ mr: 1 }}
               />
             </Tooltip>
             <TextField
               size="small"
-              placeholder="搜索..."
+              placeholder={t('articles.searchPlaceholder')}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleFilterChange()}
-              sx={{ minWidth: 200, flex: '0 1 350px' }}
+              sx={{ minWidth: 150, flex: '0 1 250px' }}
               slotProps={{
                 input: {
                   startAdornment: <SearchIcon color="action" sx={{ mr: 1, fontSize: 18 }} />,
@@ -145,7 +152,7 @@ const ArticleListPage = () => {
             <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
               <Box sx={{ width: '25%' }}>
                 <DatePicker
-                  label="开始日期"
+                  label={t('articles.startDate')}
                   value={startDate}
                   onChange={(newValue) => setStartDate(newValue)}
                   slotProps={{ textField: { size: 'small', fullWidth: true } }}
@@ -153,7 +160,7 @@ const ArticleListPage = () => {
               </Box>
               <Box sx={{ width: '25%' }}>
                 <DatePicker
-                  label="结束日期"
+                  label={t('articles.endDate')}
                   value={endDate}
                   onChange={(newValue) => setEndDate(newValue)}
                   slotProps={{ textField: { size: 'small', fullWidth: true } }}
@@ -161,11 +168,11 @@ const ArticleListPage = () => {
               </Box>
               <Box sx={{ width: '50%' }}>
                 <FormControl size="small" fullWidth>
-                  <InputLabel>会议/期刊</InputLabel>
+                  <InputLabel>{t('articles.conference')}</InputLabel>
                   <Select
                     multiple
                     value={localSources}
-                    label="会议/期刊"
+                    label={t('articles.conference')}
                     onChange={(e) => setLocalSources(e.target.value as string[])}
                     renderValue={(selected) => (
                       <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
@@ -190,10 +197,10 @@ const ArticleListPage = () => {
             {showArxivOnly && (
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, pl: 1.5 }}>
                 <Typography variant="body2" color="text.secondary" sx={{ whiteSpace: 'nowrap' }}>
-                  领域:
+                  {t('articles.domainsLabel')}:
                 </Typography>
                 <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                  {DOMAIN_OPTIONS.map((domain) => (
+                  {settings.crawlerCategories.map((domain) => (
                     <Chip
                       key={domain}
                       label={domain}
@@ -211,35 +218,35 @@ const ArticleListPage = () => {
 
         {/* Content - Scrollable Area */}
         <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', position: 'relative' }}>
-          {/* Top Gradient overlay - 文章滑动时渐变消失 */}
-          <Box
-            sx={{
-              position: 'absolute',
-              top: 0,
-              left: 0,
-              right: 0,
-              height: 32,
-              background: (theme) => `linear-gradient(to bottom, ${theme.palette.background.paper}F2, ${theme.palette.background.paper}00)`,
-              pointerEvents: 'none',
-              zIndex: 1,
-            }}
-          />
+          <Container maxWidth="lg" sx={{ flex: 1, pt: 2, pb: 2, overflow: 'auto', position: 'relative' }}>
+            {/* Top Gradient overlay - 文章滑动时渐变消失 */}
+            <Box
+              sx={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                right: 0,
+                height: 32,
+                background: (theme) => `linear-gradient(to bottom, ${theme.palette.background.paper}F2, ${theme.palette.background.paper}00)`,
+                pointerEvents: 'none',
+                zIndex: 1,
+              }}
+            />
 
-          {/* Bottom Gradient overlay - 文章滑动到底部时渐变消失 */}
-          <Box
-            sx={{
-              position: 'absolute',
-              bottom: 0,
-              left: 0,
-              right: 0,
-              height: 32,
-              background: (theme) => `linear-gradient(to top, ${theme.palette.background.paper}F2, ${theme.palette.background.paper}00)`,
-              pointerEvents: 'none',
-              zIndex: 1,
-            }}
-          />
+            {/* Bottom Gradient overlay - 文章滑动到底部时渐变消失 */}
+            <Box
+              sx={{
+                position: 'absolute',
+                bottom: 0,
+                left: 0,
+                right: 0,
+                height: 32,
+                background: (theme) => `linear-gradient(to top, ${theme.palette.background.paper}F2, ${theme.palette.background.paper}00)`,
+                pointerEvents: 'none',
+                zIndex: 1,
+              }}
+            />
 
-          <Container maxWidth="lg" sx={{ flex: 1, pt: 2, pb: 2, overflow: 'auto' }}>
             {/* Article List */}
             <Box>
               {loading ? (
@@ -250,7 +257,7 @@ const ArticleListPage = () => {
                 </>
               ) : articles.length === 0 ? (
                 <Box sx={{ textAlign: 'center', py: 4 }}>
-                  <Typography color="text.secondary">没有找到符合条件的文章</Typography>
+                  <Typography color="text.secondary">{t('articles.noResults')}</Typography>
                 </Box>
               ) : (
                 articles.map((article) => (
@@ -264,16 +271,16 @@ const ArticleListPage = () => {
           <Paper sx={{ px: 3, py: 1, borderTop: 1, borderColor: 'divider', flexShrink: 0 }}>
             <Box sx={{ maxWidth: 'lg', mx: 'auto', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <FormControl size="small" sx={{ width: 100 }}>
-                <InputLabel>每页条数</InputLabel>
+                <InputLabel>{t('articles.perPage')}</InputLabel>
                 <Select
                   value={pageSize}
-                  label="每页条数"
+                  label={t('articles.perPage')}
                   onChange={(e) => setPageSize(e.target.value as number)}
                 >
-                  <MenuItem value={5}>5 条</MenuItem>
-                  <MenuItem value={10}>10 条</MenuItem>
-                  <MenuItem value={20}>20 条</MenuItem>
-                  <MenuItem value={50}>50 条</MenuItem>
+                  <MenuItem value={5}>{t('articles.itemsPerPage', { count: 5 })}</MenuItem>
+                  <MenuItem value={10}>{t('articles.itemsPerPage', { count: 10 })}</MenuItem>
+                  <MenuItem value={20}>{t('articles.itemsPerPage', { count: 20 })}</MenuItem>
+                  <MenuItem value={50}>{t('articles.itemsPerPage', { count: 50 })}</MenuItem>
                 </Select>
               </FormControl>
               <Pagination

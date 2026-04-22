@@ -24,14 +24,18 @@ import {
 } from '@mui/icons-material';
 import dayjs from 'dayjs';
 import { useHistoryStore } from '../../stores/useHistoryStore';
-import { ArticleActions } from '../../components/article/ArticleActions';
+import { useChatStore } from '../../stores/useChatStore';
+import { AbstractDialog } from '../../components/article/AbstractDialog';
+import { useTranslation } from 'react-i18next';
 
 const ALL_ACTIONS = ['view_abstract', 'view_source', 'favorite', 'download'];
 const CHAT_MODES = ['chat', 'paper_search', 'chapter_summary'];
 
 const HistoryPage = () => {
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const { records, setFilters } = useHistoryStore();
+  const { sessions, messages } = useChatStore();
   const [startDate, setStartDate] = useState<dayjs.Dayjs | null>(dayjs().subtract(7, 'day'));
   const [endDate, setEndDate] = useState<dayjs.Dayjs | null>(dayjs());
   const [historyType, setHistoryType] = useState<'reading' | 'chat'>('reading');
@@ -39,6 +43,8 @@ const HistoryPage = () => {
   const [showChatModeFilter, setShowChatModeFilter] = useState(false);
   const [selectedActions, setSelectedActions] = useState<string[]>([...ALL_ACTIONS]);
   const [selectedChatModes, setSelectedChatModes] = useState<string[]>([...CHAT_MODES]);
+  const [abstractDialogOpen, setAbstractDialogOpen] = useState(false);
+  const [selectedArticle, setSelectedArticle] = useState<typeof records[0]['article'] | null>(null);
 
   const handleHistoryTypeChange = (_: React.MouseEvent<HTMLElement>, newValue: 'reading' | 'chat' | null) => {
     if (newValue) {
@@ -84,13 +90,13 @@ const HistoryPage = () => {
   const getActionLabel = (action: string) => {
     switch (action) {
       case 'view_abstract':
-        return '摘要';
+        return t('history.actions.view_abstract');
       case 'view_source':
-        return '链接';
+        return t('history.actions.view_source');
       case 'favorite':
-        return '收藏';
+        return t('history.actions.favorite');
       case 'download':
-        return '下载';
+        return t('history.actions.download');
       default:
         return action;
     }
@@ -99,11 +105,11 @@ const HistoryPage = () => {
   const getChatModeLabel = (mode: string) => {
     switch (mode) {
       case 'chat':
-        return '对话';
+        return t('history.chatModes.chat');
       case 'paper_search':
-        return '搜索';
+        return t('history.chatModes.paper_search');
       case 'chapter_summary':
-        return '总结';
+        return t('history.chatModes.chapter_summary');
       default:
         return mode;
     }
@@ -119,30 +125,17 @@ const HistoryPage = () => {
     return acc;
   }, {} as Record<string, typeof records>);
 
-  // Mock chat history data
-  const chatHistory = [
-    {
-      id: 'ch1',
-      mode: 'chat',
-      title: '关于 Transformer 架构的讨论',
-      timestamp: new Date().toISOString(),
-      messageCount: 12,
-    },
-    {
-      id: 'ch2',
-      mode: 'paper_search',
-      title: '搜索注意力机制相关论文',
-      timestamp: new Date(Date.now() - 86400000).toISOString(),
-      messageCount: 8,
-    },
-    {
-      id: 'ch3',
-      mode: 'chapter_summary',
-      title: 'Attention Is All You Need 总结',
-      timestamp: new Date(Date.now() - 172800000).toISOString(),
-      messageCount: 5,
-    },
-  ];
+  // Get chat sessions with messages (most recent first)
+  const chatHistory = sessions
+    .filter(session => messages[session.id] && messages[session.id].length > 0)
+    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+    .map(session => ({
+      id: session.id,
+      mode: session.mode,
+      title: session.title,
+      timestamp: session.updatedAt,
+      messageCount: messages[session.id]?.length || 0,
+    }));
 
   const filteredChatHistory = chatHistory.filter((chat) => selectedChatModes.includes(chat.mode));
 
@@ -162,13 +155,13 @@ const HistoryPage = () => {
               size="small"
               sx={{ ml: 1 }}
             >
-              <ToggleButton value="reading">阅读历史</ToggleButton>
-              <ToggleButton value="chat">对话历史</ToggleButton>
+              <ToggleButton value="reading">{t('history.readingHistory')}</ToggleButton>
+              <ToggleButton value="chat">{t('history.chatHistory')}</ToggleButton>
             </ToggleButtonGroup>
             <Box sx={{ flex: 1 }} />
             <Box sx={{ width: 150 }}>
               <MuiDatePicker
-                label="开始"
+                label={t('articles.startDate')}
                 value={startDate}
                 onChange={(newValue) => setStartDate(newValue)}
                 slotProps={{ textField: { size: 'small', fullWidth: true } }}
@@ -176,13 +169,13 @@ const HistoryPage = () => {
             </Box>
             <Box sx={{ width: 150 }}>
               <MuiDatePicker
-                label="结束"
+                label={t('articles.endDate')}
                 value={endDate}
                 onChange={(newValue) => setEndDate(newValue)}
                 slotProps={{ textField: { size: 'small', fullWidth: true } }}
               />
             </Box>
-            <Tooltip title={historyType === 'reading' ? '筛选操作类型' : '筛选对话类型'} arrow>
+            <Tooltip title={historyType === 'reading' ? t('history.actionType') : t('history.chatMode')} arrow>
               <ToggleButton
                 value="filter"
                 selected={historyType === 'reading' ? showActionFilter : showChatModeFilter}
@@ -200,7 +193,7 @@ const HistoryPage = () => {
                 }}
                 size="small"
               >
-                筛选
+                {t('history.filter')}
               </ToggleButton>
             </Tooltip>
           </Toolbar>
@@ -209,7 +202,7 @@ const HistoryPage = () => {
           {historyType === 'reading' && showActionFilter && (
             <Box sx={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 1, px: 2, py: 0.5, minHeight: 32 }}>
               <Typography variant="body2" color="text.secondary">
-                操作类型:
+                {t('history.actionType')}:
               </Typography>
               {ALL_ACTIONS.map((action) => (
                 <Chip
@@ -229,7 +222,7 @@ const HistoryPage = () => {
           {historyType === 'chat' && showChatModeFilter && (
             <Box sx={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 1, px: 2, py: 0.5, minHeight: 32 }}>
               <Typography variant="body2" color="text.secondary">
-                对话类型:
+                {t('history.chatMode')}:
               </Typography>
               {CHAT_MODES.map((mode) => (
                 <Chip
@@ -254,7 +247,7 @@ const HistoryPage = () => {
               position="right"
               sx={{
                 '& .MuiTimelineItem-root:before': { flex: 0, padding: 0 },
-                '& .MuiTimelineContent-root': { flex: 1 },
+                '& .MuiTimelineContent-root': { flex: 0, minWidth: 600, maxWidth: 600 },
               }}
             >
               {Object.entries(groupedRecords).map(([date, dateRecords]) => (
@@ -268,20 +261,32 @@ const HistoryPage = () => {
                       {date}
                     </Typography>
                     {dateRecords.map((record) => (
-                      <Box
+                      <Paper
                         key={record.id}
+                        elevation={0}
+                        onClick={() => {
+                          setSelectedArticle(record.article);
+                          setAbstractDialogOpen(true);
+                        }}
                         sx={{
                           mb: 0.5,
                           px: 1.5,
-                          py: 1,
+                          py: 0.75,
                           borderRadius: 1,
                           bgcolor: 'background.paper',
                           border: 1,
                           borderColor: 'divider',
+                          cursor: 'pointer',
+                          transition: 'background-color 0.15s',
+                          width: '100%',
+                          boxSizing: 'border-box',
+                          '&:hover': {
+                            bgcolor: 'action.hover',
+                          },
                         }}
                       >
-                        {/* 第一行 */}
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                        {/* 单行布局 */}
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, minHeight: 24 }}>
                           <Chip
                             label={`${new Date(record.timestamp).toLocaleTimeString()} | ${getActionLabel(record.action)}`}
                             size="small"
@@ -293,39 +298,46 @@ const HistoryPage = () => {
                             variant="outlined"
                             sx={{ flexShrink: 0, height: 20, fontSize: '0.65rem' }}
                           />
-                          <Typography variant="subtitle2" sx={{ fontWeight: 500 }} noWrap>
-                            {record.article.title}
-                          </Typography>
-                          <Tooltip title="AI 总结" arrow>
+                          <Tooltip title={record.article.title} arrow enterDelay={500}>
+                            <Typography
+                              variant="subtitle2"
+                              sx={{
+                                fontWeight: 500,
+                                flex: 1,
+                                minWidth: 0,
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap',
+                              }}
+                            >
+                              {record.article.title}
+                            </Typography>
+                          </Tooltip>
+                          <Tooltip title={t('article.aiSummary')} arrow>
                             <IconButton
                               size="small"
-                              onClick={() => navigate(`/?tab=summary&articleId=${record.article.id}`)}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                navigate(`/?tab=summary&articleId=${record.article.id}`);
+                              }}
                               color="secondary"
                               sx={{ p: 0, '&:hover': { bgcolor: 'transparent' }, flexShrink: 0 }}
                             >
                               <AutoAwesomeIcon sx={{ fontSize: 18 }} />
                               <Typography variant="subtitle2" sx={{ fontWeight: 600, ml: 0.25 }}>
-                                ASK AI
+                                {t('article.askAI')}
                               </Typography>
                             </IconButton>
                           </Tooltip>
-                          <Box sx={{ flex: 1 }} />
                         </Box>
-                        {/* 第二行：作者 + 功能按钮 */}
-                        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mt: 0.5 }}>
-                          <Typography variant="caption" color="text.secondary" noWrap sx={{ flex: 1, mr: 1 }}>
-                            {record.article.authors.join(', ')}
-                          </Typography>
-                          <ArticleActions article={record.article} compact />
-                        </Box>
-                      </Box>
+                      </Paper>
                     ))}
                   </TimelineContent>
                 </TimelineItem>
               ))}
               {records.length === 0 && (
                 <Box sx={{ textAlign: 'center', py: 4 }}>
-                  <Typography color="text.secondary">暂无阅读历史记录</Typography>
+                  <Typography color="text.secondary">{t('history.noReadingHistory')}</Typography>
                 </Box>
               )}
             </Timeline>
@@ -335,7 +347,7 @@ const HistoryPage = () => {
               position="right"
               sx={{
                 '& .MuiTimelineItem-root:before': { flex: 0, padding: 0 },
-                '& .MuiTimelineContent-root': { flex: 1 },
+                '& .MuiTimelineContent-root': { flex: 0, minWidth: 600, maxWidth: 600 },
               }}
             >
               {Object.entries(
@@ -373,17 +385,28 @@ const HistoryPage = () => {
                             label={getChatModeLabel(chat.mode)}
                             size="small"
                             color={chat.mode === 'chat' ? 'primary' : chat.mode === 'paper_search' ? 'secondary' : 'info'}
-                            sx={{ height: 20, fontSize: '0.65rem' }}
+                            sx={{ height: 20, fontSize: '0.65rem', flexShrink: 0 }}
                           />
-                          <Typography variant="subtitle2" sx={{ fontWeight: 500 }} noWrap>
-                            {chat.title}
-                          </Typography>
-                          <Box sx={{ flex: 1 }} />
-                          <Typography variant="caption" color="text.secondary">
+                          <Tooltip title={chat.title} arrow enterDelay={500}>
+                            <Typography
+                              variant="subtitle2"
+                              sx={{
+                                fontWeight: 500,
+                                flex: 1,
+                                minWidth: 0,
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap',
+                              }}
+                            >
+                              {chat.title}
+                            </Typography>
+                          </Tooltip>
+                          <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0 }}>
                             {new Date(chat.timestamp).toLocaleTimeString()}
                           </Typography>
-                          <Typography variant="caption" color="text.secondary">
-                            {chat.messageCount} 条
+                          <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0 }}>
+                            {chat.messageCount} {t('history.messages')}
                           </Typography>
                         </Box>
                       </Paper>
@@ -393,7 +416,7 @@ const HistoryPage = () => {
               ))}
               {filteredChatHistory.length === 0 && (
                 <Box sx={{ textAlign: 'center', py: 4 }}>
-                  <Typography color="text.secondary">暂无对话历史记录</Typography>
+                  <Typography color="text.secondary">{t('history.noChatHistory')}</Typography>
                 </Box>
               )}
             </Timeline>
@@ -406,6 +429,13 @@ const HistoryPage = () => {
             <Pagination count={1} color="primary" />
           </Box>
         </Paper>
+
+        {/* Abstract Dialog */}
+        <AbstractDialog
+          open={abstractDialogOpen}
+          article={selectedArticle}
+          onClose={() => setAbstractDialogOpen(false)}
+        />
       </Box>
     </LocalizationProvider>
   );

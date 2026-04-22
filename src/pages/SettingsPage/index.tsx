@@ -9,7 +9,6 @@ import {
   Container,
   Paper,
   FormControlLabel,
-  Checkbox,
   Slider,
   TextField,
   Button,
@@ -38,10 +37,13 @@ import {
   Cloud as CloudIcon,
   Storage as StorageIcon,
   Apple as AppleIcon,
+  Edit as EditIcon,
 } from '@mui/icons-material';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { useThemeMode, ThemePreference } from '../../app/ThemeProvider';
 import { CloudProviderConfig, LocalProviderConfig, LocalProviderType, ModelConfig } from '../../types';
+import { CategorySelectDialog } from '../../components/common/CategorySelectDialog';
+import { getCategoryByCode } from '../../constants/academicCategories';
 
 const generateId = () => Math.random().toString(36).substring(2, 9);
 
@@ -63,8 +65,8 @@ const SettingsPage = () => {
 
   const [localSettings, setLocalSettings] = useState(settings);
   const [testResults, setTestResults] = useState<Record<string, { success: boolean; message: string }>>({});
+  const [categoryDialogOpen, setCategoryDialogOpen] = useState(false);
 
-  const crawlerSourceOptions = ['arxiv', 'semantic_scholar', 'ieee', 'springer'];
   const appleDevice = isApplePlatform();
 
   // Sync local settings with store
@@ -77,11 +79,8 @@ const SettingsPage = () => {
     updateSettings(localSettings);
   }, [localSettings, updateSettings]);
 
-  const handleSourceChange = (source: string) => {
-    const sources = localSettings.crawlerSources.includes(source)
-      ? localSettings.crawlerSources.filter((s) => s !== source)
-      : [...localSettings.crawlerSources, source];
-    setLocalSettings({ ...localSettings, crawlerSources: sources });
+  const handleCategoriesChange = (categories: string[]) => {
+    setLocalSettings({ ...localSettings, crawlerCategories: categories });
   };
 
   const handleTestConnection = async (providerId: string, type: 'cloud' | 'local') => {
@@ -92,7 +91,7 @@ const SettingsPage = () => {
   const handleBrowsePath = () => {
     setLocalSettings({
       ...localSettings,
-      databasePath: '/Users/example/database',
+      pdfStoragePath: '~/.research_dashboard',
     });
   };
 
@@ -289,20 +288,35 @@ const SettingsPage = () => {
           <Typography variant="h6" gutterBottom>爬虫设置</Typography>
 
           <Box sx={{ mb: 3 }}>
-            <Typography variant="subtitle2" gutterBottom>爬取来源</Typography>
-            <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-              {crawlerSourceOptions.map((source) => (
-                <FormControlLabel
-                  key={source}
-                  control={
-                    <Checkbox
-                      checked={localSettings.crawlerSources.includes(source)}
-                      onChange={() => handleSourceChange(source)}
-                    />
-                  }
-                  label={source.toUpperCase()}
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+              <Typography variant="subtitle2">爬取领域 ({localSettings.crawlerCategories.length} 个已选)</Typography>
+              <Button
+                size="small"
+                startIcon={<EditIcon />}
+                onClick={() => setCategoryDialogOpen(true)}
+              >
+                编辑领域
+              </Button>
+            </Box>
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+              {localSettings.crawlerCategories.slice(0, 10).map((code) => {
+                const cat = getCategoryByCode(code);
+                return (
+                  <Chip
+                    key={code}
+                    label={cat?.name || code}
+                    size="small"
+                    variant="outlined"
+                  />
+                );
+              })}
+              {localSettings.crawlerCategories.length > 10 && (
+                <Chip
+                  label={`+${localSettings.crawlerCategories.length - 10} 更多`}
+                  size="small"
+                  variant="outlined"
                 />
-              ))}
+              )}
             </Box>
           </Box>
 
@@ -324,11 +338,11 @@ const SettingsPage = () => {
           </Box>
 
           <Box sx={{ mb: 2 }}>
-            <Typography variant="subtitle2" gutterBottom>数据库路径</Typography>
+            <Typography variant="subtitle2" gutterBottom>PDF 存储路径</Typography>
             <Box sx={{ display: 'flex', gap: 1 }}>
               <TextField
                 fullWidth
-                value={localSettings.databasePath}
+                value={localSettings.pdfStoragePath || '~/.research_dashboard'}
                 slotProps={{ input: { readOnly: true } }}
                 size="small"
               />
@@ -742,6 +756,14 @@ const SettingsPage = () => {
           </Box>
         </Paper>
       </Container>
+
+      {/* Category Select Dialog */}
+      <CategorySelectDialog
+        open={categoryDialogOpen}
+        selectedCategories={localSettings.crawlerCategories}
+        onClose={() => setCategoryDialogOpen(false)}
+        onSave={handleCategoriesChange}
+      />
     </Box>
   );
 };

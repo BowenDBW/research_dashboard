@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
   Drawer,
@@ -17,13 +17,14 @@ import {
   Menu,
   MenuItem,
   ListItemIcon as MenuListItemIcon,
+  Tooltip,
 } from '@mui/material';
 import {
   ArrowForward as ArrowForwardIcon,
   Add as AddIcon,
+  PostAdd as PostAddIcon,
   Settings as SettingsIcon,
   ChevronLeft as ChevronLeftIcon,
-  ChevronRight as ChevronRightIcon,
   Article as ArticleIcon,
   Chat as ChatIcon,
   Search as SearchIcon,
@@ -35,6 +36,7 @@ import {
 } from '@mui/icons-material';
 import { useChatStore } from '../../stores/useChatStore';
 import { useThemeMode } from '../../app/ThemeProvider';
+import { useTranslation } from 'react-i18next';
 
 interface SideDrawerProps {
   open: boolean;
@@ -44,14 +46,32 @@ interface SideDrawerProps {
 
 const DRAWER_WIDTH = 280;
 const DRAWER_WIDTH_COLLAPSED = 72;
+const TRANSITION_DURATION = 200; // ms
 
 export const SideDrawer = ({ open, onToggle, onOpenSettings }: SideDrawerProps) => {
   const navigate = useNavigate();
   const location = useLocation();
+  const { t } = useTranslation();
   const { sessions, currentSessionId, createSession, switchSession, deleteSession, messages } = useChatStore();
   const { mode, toggleMode } = useThemeMode();
   const [menuAnchorEl, setMenuAnchorEl] = useState<null | HTMLElement>(null);
   const [menuSessionId, setMenuSessionId] = useState<string | null>(null);
+  const [showContent, setShowContent] = useState(open);
+  const prevOpenRef = useRef(open);
+
+  // Track transition state - hide content during transition, show after complete
+  useEffect(() => {
+    if (prevOpenRef.current !== open) {
+      // Toggle started - hide content immediately
+      setShowContent(false);
+      // Show content after transition completes
+      const timer = setTimeout(() => {
+        setShowContent(open);
+      }, TRANSITION_DURATION);
+      prevOpenRef.current = open;
+      return () => clearTimeout(timer);
+    }
+  }, [open]);
 
   // Filter sessions to only show those with messages, sorted by most recent
   const sessionsWithMessages = sessions
@@ -107,57 +127,87 @@ export const SideDrawer = ({ open, onToggle, onOpenSettings }: SideDrawerProps) 
           },
         }}
       >
-        {/* Crawler Status */}
+        {/* Article Search & Manual Add */}
         <Box sx={{ p: open ? 2 : 1, pt: open ? 2 : 2 }}>
-          <Box
-            sx={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: open ? 'space-between' : 'center',
-              cursor: 'pointer',
-            }}
-            onClick={() => navigate('/articles')}
-          >
-            {open ? (
-              <>
+          {open ? (
+            <>
+              <Box
+                sx={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  cursor: 'pointer',
+                  opacity: showContent ? 1 : 0,
+                  transition: `opacity ${TRANSITION_DURATION}ms ease-in-out`,
+                }}
+                onClick={() => navigate('/articles')}
+              >
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                   <ArticleIcon fontSize="small" />
                   <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
-                    文章检索
+                    {t('sidebar.articleSearch')}
                   </Typography>
                 </Box>
                 <ArrowForwardIcon fontSize="small" />
-              </>
-            ) : (
-              <ArticleIcon />
-            )}
-          </Box>
-          {open && (
-            <Box sx={{ mt: 1 }}>
-              <Typography variant="caption" color="text.secondary">
-                最后爬取: 2024-01-10
-              </Typography>
-              <Typography variant="body2">文章总量: 1,234 篇</Typography>
+              </Box>
+              <Button
+                variant="outlined"
+                size="small"
+                startIcon={<PostAddIcon />}
+                fullWidth
+                sx={{ mt: 1, opacity: showContent ? 1 : 0, transition: `opacity ${TRANSITION_DURATION}ms ease-in-out` }}
+              >
+                {t('sidebar.manualAdd')}
+              </Button>
+            </>
+          ) : (
+            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
+              <Tooltip title={t('sidebar.articleSearch')} placement="right">
+                <IconButton
+                  size="small"
+                  onClick={() => navigate('/articles')}
+                >
+                  <ArticleIcon />
+                </IconButton>
+              </Tooltip>
+              <Tooltip title={t('sidebar.manualAdd')} placement="right">
+                <IconButton size="small">
+                  <PostAddIcon />
+                </IconButton>
+              </Tooltip>
             </Box>
           )}
         </Box>
 
         <Divider />
 
-        {/* New Chat Button */}
-        <Box sx={{ p: open ? 2 : 1 }}>
-          <Button
-            variant="outlined"
-            startIcon={open ? <AddIcon /> : null}
-            fullWidth={open}
-            onClick={handleNewChat}
-            sx={{
-              minWidth: isCollapsed ? 40 : 'auto',
-              justifyContent: isCollapsed ? 'center' : 'flex-start',
-            }}
-          >
-            {isCollapsed ? <AddIcon /> : '新对话'}
-          </Button>
+        {/* Chat History Section */}
+        <Box sx={{ p: open ? 2 : 1, pt: open ? 2 : 1 }}>
+          {open ? (
+            <>
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1, opacity: showContent ? 1 : 0, transition: `opacity ${TRANSITION_DURATION}ms ease-in-out` }}>
+                <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+                  {t('sidebar.chatHistory')}
+                </Typography>
+                <Tooltip title={t('sidebar.newChat')} placement="top">
+                  <IconButton size="small" onClick={handleNewChat}>
+                    <AddIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              </Box>
+            </>
+          ) : (
+            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
+              <Tooltip title={t('sidebar.newChat')} placement="right">
+                <IconButton size="small" onClick={handleNewChat}>
+                  <AddIcon />
+                </IconButton>
+              </Tooltip>
+              <Tooltip title={t('sidebar.chatHistory')} placement="right">
+                <ChatIcon color="action" fontSize="small" />
+              </Tooltip>
+            </Box>
+          )}
         </Box>
 
         {/* Session List */}
@@ -167,7 +217,7 @@ export const SideDrawer = ({ open, onToggle, onOpenSettings }: SideDrawerProps) 
               key={session.id}
               disablePadding
               secondaryAction={
-                open && (
+                showContent && open && (
                   <IconButton
                     edge="end"
                     size="small"
@@ -211,15 +261,15 @@ export const SideDrawer = ({ open, onToggle, onOpenSettings }: SideDrawerProps) 
                     </Avatar>
                   </ListItemAvatar>
                 )}
-                {open && (
+                {showContent && open && (
                   <ListItemText
                     primary={session.title}
                     secondary={
                       session.mode === 'chat'
-                        ? '对话'
+                        ? t('chat.chat')
                         : session.mode === 'paper_search'
-                        ? '论文搜索'
-                        : '文章总结'
+                        ? t('chat.paperSearch')
+                        : t('chat.articleSummary')
                     }
                     primaryTypographyProps={{ variant: 'body2', noWrap: true }}
                     secondaryTypographyProps={{ variant: 'caption', noWrap: true }}
@@ -236,7 +286,7 @@ export const SideDrawer = ({ open, onToggle, onOpenSettings }: SideDrawerProps) 
         {/* Theme & Settings - 展开时同一行 */}
         <Box sx={{ p: open ? 1.5 : 1 }}>
           {open ? (
-            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-around' }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-around', opacity: showContent ? 1 : 0, transition: `opacity ${TRANSITION_DURATION}ms ease-in-out` }}>
               <Box
                 sx={{
                   display: 'flex',
@@ -250,7 +300,7 @@ export const SideDrawer = ({ open, onToggle, onOpenSettings }: SideDrawerProps) 
                   {mode === 'light' ? <DarkModeIcon fontSize="small" /> : <LightModeIcon fontSize="small" />}
                 </IconButton>
                 <Typography variant="caption" color="text.secondary">
-                  {mode === 'light' ? '深色' : '浅色'}
+                  {mode === 'light' ? t('sidebar.darkMode') : t('sidebar.lightMode')}
                 </Typography>
               </Box>
               <Box
@@ -266,7 +316,7 @@ export const SideDrawer = ({ open, onToggle, onOpenSettings }: SideDrawerProps) 
                   <SettingsIcon fontSize="small" />
                 </IconButton>
                 <Typography variant="caption" color="text.secondary">
-                  设置
+                  {t('nav.settings')}
                 </Typography>
               </Box>
             </Box>
@@ -280,9 +330,9 @@ export const SideDrawer = ({ open, onToggle, onOpenSettings }: SideDrawerProps) 
               </IconButton>
             </Box>
           )}
-          {open && (
+          {showContent && open && (
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block', textAlign: 'center', mt: 0.5 }}>
-              v0.1.0
+              {t('common.version')}
             </Typography>
           )}
         </Box>
@@ -307,7 +357,13 @@ export const SideDrawer = ({ open, onToggle, onOpenSettings }: SideDrawerProps) 
           pointerEvents: 'auto',
         }}
       >
-        {open ? <ChevronLeftIcon fontSize="small" /> : <ChevronRightIcon fontSize="small" />}
+        <ChevronLeftIcon
+          fontSize="small"
+          sx={{
+            transition: 'transform 200ms ease-in-out',
+            transform: open ? 'rotate(0deg)' : 'rotate(180deg)',
+          }}
+        />
       </IconButton>
 
       {/* Context Menu */}
@@ -320,7 +376,7 @@ export const SideDrawer = ({ open, onToggle, onOpenSettings }: SideDrawerProps) 
           <MenuListItemIcon>
             <DeleteIcon fontSize="small" color="error" />
           </MenuListItemIcon>
-          <Typography>删除对话</Typography>
+          <Typography>{t('sidebar.deleteChat')}</Typography>
         </MenuItem>
       </Menu>
     </Box>

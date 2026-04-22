@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import {
   Dialog,
   DialogTitle,
@@ -7,8 +7,6 @@ import {
   Box,
   Typography,
   FormControlLabel,
-  Checkbox,
-  Slider,
   TextField,
   Button,
   Switch,
@@ -26,6 +24,15 @@ import {
   Stack,
   Select,
   MenuItem,
+  List,
+  ListItemButton,
+  ListItemIcon,
+  ListItemText,
+  LinearProgress,
+  Dialog as ConfirmDialog,
+  DialogTitle as ConfirmDialogTitle,
+  DialogContent as ConfirmDialogContent,
+  DialogActions as ConfirmDialogActions,
 } from '@mui/material';
 import {
   Close as CloseIcon,
@@ -37,9 +44,20 @@ import {
   Dns as DnsIcon,
   Apple as AppleIcon,
   Terminal as TerminalIcon,
+  Palette as PaletteIcon,
+  Storage as StorageIcon,
+  Settings as SettingsIcon,
+  SmartToy as SmartToyIcon,
+  Clear as ClearIcon,
+  Chat as ChatIcon,
+  Article as ArticleIcon,
+  PictureAsPdf as PdfIcon,
+  History as HistoryIcon,
 } from '@mui/icons-material';
+import { useTranslation } from 'react-i18next';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { useThemeMode, ThemePreference } from '../../app/ThemeProvider';
+import { useLanguageStore } from '../../stores/useLanguageStore';
 import { CloudProviderConfig, LocalProviderConfig, LocalProviderType, ModelConfig } from '../../types';
 
 const generateId = () => Math.random().toString(36).substring(2, 9);
@@ -57,15 +75,85 @@ interface SettingsDialogProps {
 }
 
 export const SettingsDialog = ({ open, onClose }: SettingsDialogProps) => {
+  const { t } = useTranslation();
   const { settings, updateSettings, testConnection } = useSettingsStore();
   const { preference, setPreference } = useThemeMode();
+  const { language, setLanguage } = useLanguageStore();
 
   const [localSettings, setLocalSettings] = useState(settings);
   const [testResults, setTestResults] = useState<Record<string, { success: boolean; message: string }>>({});
   const initializedRef = useRef(false);
+  const [activeSection, setActiveSection] = useState('appearance');
+  const [llmExpanded, setLlmExpanded] = useState(true);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const [confirmDialogOpen, setConfirmDialogOpen] = useState<{ open: boolean; type: 'chat' | 'reading' | 'article' | 'pdf'; months: number }>({ open: false, type: 'chat', months: 3 });
+  const [cleanChatMonths, setCleanChatMonths] = useState(3);
+  const [cleanReadingMonths, setCleanReadingMonths] = useState(3);
+  const [cleanArticleMonths, setCleanArticleMonths] = useState(3);
+  const [cleanPdfMonths, setCleanPdfMonths] = useState(3);
 
-  const crawlerSourceOptions = ['arxiv', 'semantic_scholar', 'ieee', 'springer'];
   const appleDevice = isApplePlatform();
+
+  // Calculate storage breakdown
+  const storageBreakdown = useMemo(() => {
+    // Simulated storage sizes - in real app, these would be calculated from actual data
+    const chatHistorySize = Math.random() * 50 + 10; // 10-60 MB
+    const readingHistorySize = Math.random() * 20 + 5; // 5-25 MB
+    const articleDbSize = Math.random() * 100 + 30; // 30-130 MB
+    const pdfSize = Math.random() * 500 + 100; // 100-600 MB
+
+    const formatSize = (mb: number) => {
+      if (mb < 1) return `${(mb * 1024).toFixed(0)} KB`;
+      if (mb >= 1024) return `${(mb / 1024).toFixed(1)} GB`;
+      return `${mb.toFixed(1)} MB`;
+    };
+
+    return {
+      chatHistory: { size: formatSize(chatHistorySize), sizeMB: chatHistorySize },
+      readingHistory: { size: formatSize(readingHistorySize), sizeMB: readingHistorySize },
+      articleDatabase: { size: formatSize(articleDbSize), sizeMB: articleDbSize },
+      pdfFiles: { size: formatSize(pdfSize), sizeMB: pdfSize },
+      total: formatSize(chatHistorySize + readingHistorySize + articleDbSize + pdfSize),
+    };
+  }, [open]);
+
+  // Clean history handlers
+  const handleCleanHistory = (type: 'chat' | 'reading' | 'article' | 'pdf') => {
+    const months = type === 'chat' ? cleanChatMonths
+      : type === 'reading' ? cleanReadingMonths
+      : type === 'article' ? cleanArticleMonths
+      : cleanPdfMonths;
+    setConfirmDialogOpen({ open: true, type, months });
+  };
+
+  const handleConfirmClean = async () => {
+    const { type, months } = confirmDialogOpen;
+    // In real app, this would call the backend to clean the history
+    console.log(`Cleaning ${type} history older than ${months} months`);
+    setConfirmDialogOpen({ open: false, type: 'chat', months: 3 });
+  };
+
+  // Navigation sections
+  const sections = [
+    { id: 'appearance', label: t('settings.appearance'), icon: <PaletteIcon fontSize="small" /> },
+    { id: 'storage', label: t('settings.storage'), icon: <StorageIcon fontSize="small" /> },
+    { id: 'app', label: t('settings.appSettings'), icon: <SettingsIcon fontSize="small" /> },
+    { id: 'llm', label: t('settings.llmSettings'), icon: <SmartToyIcon fontSize="small" />, children: [
+      { id: 'llm-cloud', label: t('settings.cloudModels'), icon: <CloudIcon fontSize="small" /> },
+      { id: 'llm-local', label: t('settings.localModels'), icon: <DnsIcon fontSize="small" /> },
+    ]},
+  ];
+
+  // Scroll to section
+  const scrollToSection = (sectionId: string) => {
+    setActiveSection(sectionId);
+    const element = document.getElementById(`section-${sectionId}`);
+    if (element && contentRef.current) {
+      const container = contentRef.current;
+      const elementTop = element.offsetTop - container.offsetTop - 8;
+      container.scrollTo({ top: elementTop, behavior: 'smooth' });
+    }
+  };
 
   // Sync local settings when dialog opens
   useEffect(() => {
@@ -85,22 +173,19 @@ export const SettingsDialog = ({ open, onClose }: SettingsDialogProps) => {
     }
   }, [open, localSettings, updateSettings]);
 
-  const handleSourceChange = (source: string) => {
-    const sources = localSettings.crawlerSources.includes(source)
-      ? localSettings.crawlerSources.filter((s) => s !== source)
-      : [...localSettings.crawlerSources, source];
-    setLocalSettings({ ...localSettings, crawlerSources: sources });
-  };
-
   const handleTestConnection = async (providerId: string, type: 'cloud' | 'local') => {
     const result = await testConnection(providerId, type);
     setTestResults((prev) => ({ ...prev, [`${type}-${providerId}`]: result }));
   };
 
-  const handleBrowsePath = () => {
+  const handleBrowsePath = async () => {
+    // In a Tauri app, this would use the Tauri dialog API
+    // For web, we simulate with a default path
+    // In production: const { filePath } = await window.__TAURI__.dialog.open({ directory: true });
+    const defaultPath = '~/.research_dashboard';
     setLocalSettings({
       ...localSettings,
-      databasePath: '/Users/example/database',
+      pdfStoragePath: defaultPath,
     });
   };
 
@@ -259,80 +344,288 @@ export const SettingsDialog = ({ open, onClose }: SettingsDialogProps) => {
     >
       <DialogTitle>
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <Typography variant="h6">设置</Typography>
+          <Typography variant="h6">{t('settings.title')}</Typography>
           <IconButton onClick={handleClose} size="small">
             <CloseIcon />
           </IconButton>
         </Box>
       </DialogTitle>
-      <DialogContent dividers>
-        {/* Theme Settings */}
-        <Box sx={{ mb: 3 }}>
-          <Typography variant="subtitle1" gutterBottom sx={{ fontWeight: 600 }}>外观设置</Typography>
-          <FormControl>
-            <FormLabel>主题模式</FormLabel>
+      <DialogContent sx={{ p: 0, display: 'flex', overflow: 'hidden' }}>
+        {/* Left Navigation */}
+        <Box
+          sx={{
+            width: 160,
+            flexShrink: 0,
+            borderRight: 1,
+            borderColor: 'divider',
+          }}
+        >
+          <List dense sx={{ py: 1 }}>
+            {sections.map((section) => (
+              <Box key={section.id}>
+                <ListItemButton
+                  selected={activeSection === section.id || (section.children && activeSection.startsWith(section.id + '-'))}
+                  onClick={() => {
+                    if (section.children) {
+                      setLlmExpanded(!llmExpanded);
+                    } else {
+                      scrollToSection(section.id);
+                    }
+                  }}
+                  sx={{
+                    mx: 0.5,
+                    borderRadius: 1,
+                    '&.Mui-selected': {
+                      bgcolor: 'primary.light',
+                      '&:hover': { bgcolor: 'primary.light' },
+                    },
+                  }}
+                >
+                  <ListItemIcon sx={{ minWidth: 32 }}>{section.icon}</ListItemIcon>
+                  <ListItemText primary={section.label} primaryTypographyProps={{ variant: 'body2' }} />
+                  {section.children && (
+                    <ExpandMoreIcon
+                      sx={{
+                        transform: llmExpanded ? 'rotate(0deg)' : 'rotate(-90deg)',
+                        transition: 'transform 200ms',
+                        fontSize: 18,
+                      }}
+                    />
+                  )}
+                </ListItemButton>
+                {section.children && llmExpanded && (
+                  <List dense disablePadding sx={{ pl: 2 }}>
+                    {section.children.map((child) => (
+                      <ListItemButton
+                        key={child.id}
+                        selected={activeSection === child.id}
+                        onClick={() => scrollToSection(child.id)}
+                        sx={{
+                          mx: 0.5,
+                          borderRadius: 1,
+                          '&.Mui-selected': {
+                            bgcolor: 'primary.light',
+                            '&:hover': { bgcolor: 'primary.light' },
+                          },
+                        }}
+                      >
+                        <ListItemIcon sx={{ minWidth: 28 }}>{child.icon}</ListItemIcon>
+                        <ListItemText primary={child.label} primaryTypographyProps={{ variant: 'body2' }} />
+                      </ListItemButton>
+                    ))}
+                  </List>
+                )}
+              </Box>
+            ))}
+          </List>
+        </Box>
+
+        {/* Right Content */}
+        <Box
+          ref={contentRef}
+          sx={{
+            flex: 1,
+            overflow: 'auto',
+            p: 3,
+          }}
+        >
+          {/* Theme Settings */}
+          <Box id="section-appearance" sx={{ mb: 3 }}>
+            <Typography variant="subtitle1" gutterBottom sx={{ fontWeight: 600 }}>{t('settings.appearance')}</Typography>
+          <Box sx={{ mb: 3 }}>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>{t('settings.themeMode')}</Typography>
             <RadioGroup value={preference} onChange={handleThemeChange} row>
-              <FormControlLabel value="system" control={<Radio />} label="跟随系统" />
-              <FormControlLabel value="light" control={<Radio />} label="浅色模式" />
-              <FormControlLabel value="dark" control={<Radio />} label="深色模式" />
+              <FormControlLabel value="system" control={<Radio />} label={t('settings.followSystem')} />
+              <FormControlLabel value="light" control={<Radio />} label={t('settings.lightMode')} />
+              <FormControlLabel value="dark" control={<Radio />} label={t('settings.darkMode')} />
             </RadioGroup>
-          </FormControl>
+          </Box>
+
+          {/* Language Settings */}
+          <Box>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>{t('settings.language')}</Typography>
+            <Select
+              value={language}
+              onChange={(e) => setLanguage(e.target.value as string)}
+              size="small"
+              sx={{ minWidth: 150 }}
+            >
+              <MenuItem value="zh">中文</MenuItem>
+              <MenuItem value="en">English</MenuItem>
+            </Select>
+          </Box>
         </Box>
 
         <Divider sx={{ my: 2 }} />
 
-        {/* Crawler Settings */}
-        <Box sx={{ mb: 3 }}>
-          <Typography variant="subtitle1" gutterBottom sx={{ fontWeight: 600 }}>爬虫设置</Typography>
+        {/* Database Settings */}
+        <Box id="section-storage" sx={{ mb: 3 }}>
+          <Typography variant="subtitle1" gutterBottom sx={{ fontWeight: 600 }}>{t('settings.storage')}</Typography>
 
-          <Box sx={{ mb: 2 }}>
-            <Typography variant="body2" gutterBottom>爬取来源</Typography>
-            <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-              {crawlerSourceOptions.map((source) => (
-                <FormControlLabel
-                  key={source}
-                  control={
-                    <Checkbox
+          {/* Storage Breakdown */}
+          <Box sx={{ mb: 3 }}>
+            <Typography variant="body2" gutterBottom sx={{ fontWeight: 500 }}>{t('settings.storageBreakdown')}</Typography>
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              {/* Chat History */}
+              <Box>
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.5 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flex: 1 }}>
+                    <ChatIcon fontSize="small" color="primary" />
+                    <Typography variant="body2">{t('settings.chatHistory')}</Typography>
+                    <Typography variant="body2" sx={{ fontWeight: 500, ml: 1 }}>{storageBreakdown.chatHistory.size}</Typography>
+                  </Box>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                    <FormControl size="small" sx={{ '& .MuiOutlinedInput-root': { height: 28 }, '& .MuiSelect-select': { py: 0.5, fontSize: '0.75rem' }, minWidth: 85 }}>
+                      <Select
+                        value={cleanChatMonths}
+                        onChange={(e) => setCleanChatMonths(e.target.value as number)}
+                      >
+                        <MenuItem value={1} sx={{ fontSize: '0.75rem' }}>{t('settings.monthsAgo', { count: 1 })}</MenuItem>
+                        <MenuItem value={3} sx={{ fontSize: '0.75rem' }}>{t('settings.monthsAgo', { count: 3 })}</MenuItem>
+                        <MenuItem value={6} sx={{ fontSize: '0.75rem' }}>{t('settings.monthsAgo', { count: 6 })}</MenuItem>
+                        <MenuItem value={12} sx={{ fontSize: '0.75rem' }}>{t('settings.monthsAgo', { count: 12 })}</MenuItem>
+                        <MenuItem value={999} sx={{ fontSize: '0.75rem' }}>{t('settings.allTime')}</MenuItem>
+                      </Select>
+                    </FormControl>
+                    <Button
+                      variant="outlined"
                       size="small"
-                      checked={localSettings.crawlerSources.includes(source)}
-                      onChange={() => handleSourceChange(source)}
-                    />
-                  }
-                  label={source.toUpperCase()}
-                />
-              ))}
+                      color="error"
+                      onClick={() => handleCleanHistory('chat')}
+                      sx={{ height: 28, minWidth: 'auto', px: 1, fontSize: '0.75rem' }}
+                    >
+                      {t('settings.cleanBefore')}
+                    </Button>
+                  </Box>
+                </Box>
+                <LinearProgress variant="determinate" value={(storageBreakdown.chatHistory.sizeMB / 100) * 100} sx={{ height: 6, borderRadius: 1 }} color="primary" />
+              </Box>
+
+              {/* Reading History */}
+              <Box>
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.5 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flex: 1 }}>
+                    <HistoryIcon fontSize="small" color="secondary" />
+                    <Typography variant="body2">{t('settings.readingHistory')}</Typography>
+                    <Typography variant="body2" sx={{ fontWeight: 500, ml: 1 }}>{storageBreakdown.readingHistory.size}</Typography>
+                  </Box>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                    <FormControl size="small" sx={{ '& .MuiOutlinedInput-root': { height: 28 }, '& .MuiSelect-select': { py: 0.5, fontSize: '0.75rem' }, minWidth: 85 }}>
+                      <Select
+                        value={cleanReadingMonths}
+                        onChange={(e) => setCleanReadingMonths(e.target.value as number)}
+                      >
+                        <MenuItem value={1} sx={{ fontSize: '0.75rem' }}>{t('settings.monthsAgo', { count: 1 })}</MenuItem>
+                        <MenuItem value={3} sx={{ fontSize: '0.75rem' }}>{t('settings.monthsAgo', { count: 3 })}</MenuItem>
+                        <MenuItem value={6} sx={{ fontSize: '0.75rem' }}>{t('settings.monthsAgo', { count: 6 })}</MenuItem>
+                        <MenuItem value={12} sx={{ fontSize: '0.75rem' }}>{t('settings.monthsAgo', { count: 12 })}</MenuItem>
+                        <MenuItem value={999} sx={{ fontSize: '0.75rem' }}>{t('settings.allTime')}</MenuItem>
+                      </Select>
+                    </FormControl>
+                    <Button
+                      variant="outlined"
+                      size="small"
+                      color="error"
+                      onClick={() => handleCleanHistory('reading')}
+                      sx={{ height: 28, minWidth: 'auto', px: 1, fontSize: '0.75rem' }}
+                    >
+                      {t('settings.cleanBefore')}
+                    </Button>
+                  </Box>
+                </Box>
+                <LinearProgress variant="determinate" value={(storageBreakdown.readingHistory.sizeMB / 100) * 100} sx={{ height: 6, borderRadius: 1 }} color="secondary" />
+              </Box>
+
+              {/* Article Database */}
+              <Box>
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.5 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flex: 1 }}>
+                    <ArticleIcon fontSize="small" color="info" />
+                    <Typography variant="body2">{t('settings.articleDatabase')}</Typography>
+                    <Typography variant="body2" sx={{ fontWeight: 500, ml: 1 }}>{storageBreakdown.articleDatabase.size}</Typography>
+                  </Box>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                    <FormControl size="small" sx={{ '& .MuiOutlinedInput-root': { height: 28 }, '& .MuiSelect-select': { py: 0.5, fontSize: '0.75rem' }, minWidth: 85 }}>
+                      <Select
+                        value={cleanArticleMonths}
+                        onChange={(e) => setCleanArticleMonths(e.target.value as number)}
+                      >
+                        <MenuItem value={1} sx={{ fontSize: '0.75rem' }}>{t('settings.monthsAgo', { count: 1 })}</MenuItem>
+                        <MenuItem value={3} sx={{ fontSize: '0.75rem' }}>{t('settings.monthsAgo', { count: 3 })}</MenuItem>
+                        <MenuItem value={6} sx={{ fontSize: '0.75rem' }}>{t('settings.monthsAgo', { count: 6 })}</MenuItem>
+                        <MenuItem value={12} sx={{ fontSize: '0.75rem' }}>{t('settings.monthsAgo', { count: 12 })}</MenuItem>
+                        <MenuItem value={999} sx={{ fontSize: '0.75rem' }}>{t('settings.allTime')}</MenuItem>
+                      </Select>
+                    </FormControl>
+                    <Button
+                      variant="outlined"
+                      size="small"
+                      color="error"
+                      onClick={() => handleCleanHistory('article')}
+                      sx={{ height: 28, minWidth: 'auto', px: 1, fontSize: '0.75rem' }}
+                    >
+                      {t('settings.cleanBefore')}
+                    </Button>
+                  </Box>
+                </Box>
+                <LinearProgress variant="determinate" value={(storageBreakdown.articleDatabase.sizeMB / 100) * 100} sx={{ height: 6, borderRadius: 1 }} color="info" />
+              </Box>
+
+              {/* PDF Files */}
+              <Box>
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.5 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flex: 1 }}>
+                    <PdfIcon fontSize="small" color="error" />
+                    <Typography variant="body2">{t('settings.pdfFiles')}</Typography>
+                    <Typography variant="body2" sx={{ fontWeight: 500, ml: 1 }}>{storageBreakdown.pdfFiles.size}</Typography>
+                  </Box>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                    <FormControl size="small" sx={{ '& .MuiOutlinedInput-root': { height: 28 }, '& .MuiSelect-select': { py: 0.5, fontSize: '0.75rem' }, minWidth: 85 }}>
+                      <Select
+                        value={cleanPdfMonths}
+                        onChange={(e) => setCleanPdfMonths(e.target.value as number)}
+                      >
+                        <MenuItem value={1} sx={{ fontSize: '0.75rem' }}>{t('settings.monthsAgo', { count: 1 })}</MenuItem>
+                        <MenuItem value={3} sx={{ fontSize: '0.75rem' }}>{t('settings.monthsAgo', { count: 3 })}</MenuItem>
+                        <MenuItem value={6} sx={{ fontSize: '0.75rem' }}>{t('settings.monthsAgo', { count: 6 })}</MenuItem>
+                        <MenuItem value={12} sx={{ fontSize: '0.75rem' }}>{t('settings.monthsAgo', { count: 12 })}</MenuItem>
+                        <MenuItem value={999} sx={{ fontSize: '0.75rem' }}>{t('settings.allTime')}</MenuItem>
+                      </Select>
+                    </FormControl>
+                    <Button
+                      variant="outlined"
+                      size="small"
+                      color="error"
+                      onClick={() => handleCleanHistory('pdf')}
+                      sx={{ height: 28, minWidth: 'auto', px: 1, fontSize: '0.75rem' }}
+                    >
+                      {t('settings.cleanBefore')}
+                    </Button>
+                  </Box>
+                </Box>
+                <LinearProgress variant="determinate" value={(storageBreakdown.pdfFiles.sizeMB / 100) * 100} sx={{ height: 6, borderRadius: 1 }} color="error" />
+              </Box>
+            </Box>
+
+            {/* Total */}
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mt: 2, pt: 1, borderTop: 1, borderColor: 'divider' }}>
+              <Typography variant="body2" sx={{ fontWeight: 500 }}>{t('settings.storageUsage')}</Typography>
+              <Typography variant="body2" sx={{ fontWeight: 600 }}>{storageBreakdown.total}</Typography>
             </Box>
           </Box>
 
-          <Box sx={{ mb: 2 }}>
-            <Typography variant="body2" gutterBottom>
-              爬取频率: 每 {localSettings.crawlIntervalHours} 小时
-            </Typography>
-            <Slider
-              value={localSettings.crawlIntervalHours}
-              onChange={(_, value) =>
-                setLocalSettings({ ...localSettings, crawlIntervalHours: value as number })
-              }
-              min={1}
-              max={24}
-              step={1}
-              marks
-              valueLabelDisplay="auto"
-              size="small"
-            />
-          </Box>
-
-          <Box>
-            <Typography variant="body2" gutterBottom>数据库路径</Typography>
-            <Box sx={{ display: 'flex', gap: 1 }}>
+          {/* PDF Storage Path */}
+          <Box sx={{ mb: 3 }}>
+            <Typography variant="body2" gutterBottom>{t('settings.pdfStoragePath')}</Typography>
+            <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
               <TextField
-                fullWidth
-                value={localSettings.databasePath}
+                sx={{ flex: 1 }}
+                value={localSettings.pdfStoragePath || '~/.research_dashboard'}
                 slotProps={{ input: { readOnly: true } }}
                 size="small"
               />
-              <Button variant="outlined" size="small" startIcon={<FolderOpenIcon />} onClick={handleBrowsePath}>
-                浏览
+              <Button variant="outlined" size="small" startIcon={<FolderOpenIcon />} onClick={handleBrowsePath} sx={{ flexShrink: 0 }}>
+                {t('settings.browse')}
               </Button>
             </Box>
           </Box>
@@ -341,8 +634,8 @@ export const SettingsDialog = ({ open, onClose }: SettingsDialogProps) => {
         <Divider sx={{ my: 2 }} />
 
         {/* App Settings */}
-        <Box sx={{ mb: 3 }}>
-          <Typography variant="subtitle1" gutterBottom sx={{ fontWeight: 600 }}>应用设置</Typography>
+        <Box id="section-app" sx={{ mb: 3 }}>
+          <Typography variant="subtitle1" gutterBottom sx={{ fontWeight: 600 }}>{t('settings.appSettings')}</Typography>
           <FormControlLabel
             control={
               <Switch
@@ -353,32 +646,32 @@ export const SettingsDialog = ({ open, onClose }: SettingsDialogProps) => {
                 }
               />
             }
-            label="开机自启动"
+            label={t('settings.autoLaunch')}
           />
         </Box>
 
         <Divider sx={{ my: 2 }} />
 
         {/* LLM Settings */}
-        <Box>
-          <Typography variant="subtitle1" gutterBottom sx={{ fontWeight: 600 }}>大模型设置</Typography>
+        <Box id="section-llm">
+          <Typography variant="subtitle1" gutterBottom sx={{ fontWeight: 600 }}>{t('settings.llmSettings')}</Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            可同时配置多个云端和本地模型服务
+            {t('settings.llmSettingsDesc')}
           </Typography>
 
           {/* Cloud Providers Section */}
-          <Box sx={{ mb: 3 }}>
+          <Box id="section-llm-cloud" sx={{ mb: 3 }}>
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                 <CloudIcon fontSize="small" color="primary" />
-                <Typography variant="body2" sx={{ fontWeight: 500 }}>云端模型</Typography>
+                <Typography variant="body2" sx={{ fontWeight: 500 }}>{t('settings.cloudModels')}</Typography>
               </Box>
-              <Button size="small" startIcon={<AddIcon />} onClick={handleAddCloudProvider}>添加</Button>
+              <Button size="small" startIcon={<AddIcon />} onClick={handleAddCloudProvider}>{t('common.add')}</Button>
             </Box>
 
             {localSettings.cloudProviders.length === 0 ? (
               <Box sx={{ py: 1.5, textAlign: 'center', bgcolor: 'action.hover', borderRadius: 1 }}>
-                <Typography variant="body2" color="text.secondary">暂无云端服务配置</Typography>
+                <Typography variant="body2" color="text.secondary">{t('settings.noCloudConfig')}</Typography>
               </Box>
             ) : (
               <Stack spacing={1}>
@@ -387,8 +680,8 @@ export const SettingsDialog = ({ open, onClose }: SettingsDialogProps) => {
                     <AccordionSummary expandIcon={<ExpandMoreIcon />} sx={{ minHeight: 40, '& .MuiAccordionSummary-content': { my: 0.5 } }}>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, width: '100%', pr: 2 }}>
                         <CloudIcon fontSize="small" color="primary" />
-                        <Typography variant="body2" sx={{ flex: 1 }}>{provider.name || '未命名服务'}</Typography>
-                        <Chip label={`${provider.models.length} 模型`} size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
+                        <Typography variant="body2" sx={{ flex: 1 }}>{provider.name || t('settings.unnamedService')}</Typography>
+                        <Chip label={`${provider.models.length} ${t('settings.models')}`} size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
                         <IconButton size="small" onClick={(e) => { e.stopPropagation(); handleRemoveCloudProvider(provider.id); }}>
                           <DeleteIcon fontSize="small" />
                         </IconButton>
@@ -396,27 +689,27 @@ export const SettingsDialog = ({ open, onClose }: SettingsDialogProps) => {
                     </AccordionSummary>
                     <AccordionDetails>
                       <Stack spacing={1.5}>
-                        <TextField fullWidth label="服务名称" value={provider.name} onChange={(e) => handleUpdateCloudProvider(provider.id, { name: e.target.value })} size="small" />
-                        <TextField fullWidth label="API Endpoint" value={provider.endpoint} onChange={(e) => handleUpdateCloudProvider(provider.id, { endpoint: e.target.value })} placeholder="https://api.openai.com/v1" size="small" />
-                        <TextField fullWidth label="API Key" type="password" value={provider.apiKey} onChange={(e) => handleUpdateCloudProvider(provider.id, { apiKey: e.target.value })} size="small" />
-                        <Button variant="outlined" size="small" onClick={() => handleTestConnection(provider.id, 'cloud')} sx={{ alignSelf: 'flex-start' }}>测试连接</Button>
+                        <TextField fullWidth label={t('settings.serviceName')} value={provider.name} onChange={(e) => handleUpdateCloudProvider(provider.id, { name: e.target.value })} size="small" />
+                        <TextField fullWidth label={t('settings.apiEndpoint')} value={provider.endpoint} onChange={(e) => handleUpdateCloudProvider(provider.id, { endpoint: e.target.value })} placeholder="https://api.openai.com/v1" size="small" />
+                        <TextField fullWidth label={t('settings.apiKey')} type="password" value={provider.apiKey} onChange={(e) => handleUpdateCloudProvider(provider.id, { apiKey: e.target.value })} size="small" />
+                        <Button variant="outlined" size="small" onClick={() => handleTestConnection(provider.id, 'cloud')} sx={{ alignSelf: 'flex-start' }}>{t('settings.testConnection')}</Button>
                         {testResults[`cloud-${provider.id}`] && (
                           <Alert severity={testResults[`cloud-${provider.id}`].success ? 'success' : 'error'}>{testResults[`cloud-${provider.id}`].message}</Alert>
                         )}
                         <Divider />
                         <Box>
                           <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
-                            <Typography variant="body2">模型列表</Typography>
-                            <Button size="small" startIcon={<AddIcon />} onClick={() => handleAddModel(provider.id, 'cloud')}>添加</Button>
+                            <Typography variant="body2">{t('settings.modelList')}</Typography>
+                            <Button size="small" startIcon={<AddIcon />} onClick={() => handleAddModel(provider.id, 'cloud')}>{t('common.add')}</Button>
                           </Box>
                           {provider.models.length === 0 ? (
-                            <Typography variant="body2" color="text.secondary">暂无模型配置</Typography>
+                            <Typography variant="body2" color="text.secondary">{t('settings.noModels')}</Typography>
                           ) : (
                             <Stack spacing={1}>
                               {provider.models.map((model) => (
                                 <Box key={model.id} sx={{ display: 'flex', gap: 1, alignItems: 'center', p: 1, bgcolor: 'action.hover', borderRadius: 1 }}>
-                                  <TextField size="small" label="模型名称" value={model.modelName} onChange={(e) => handleUpdateModel(provider.id, model.id, { modelName: e.target.value }, 'cloud')} placeholder="gpt-4o" sx={{ flex: 1 }} />
-                                  <TextField size="small" label="显示名称" value={model.displayName} onChange={(e) => handleUpdateModel(provider.id, model.id, { displayName: e.target.value }, 'cloud')} placeholder="GPT-4o" sx={{ flex: 1 }} />
+                                  <TextField size="small" label={t('settings.modelName')} value={model.modelName} onChange={(e) => handleUpdateModel(provider.id, model.id, { modelName: e.target.value }, 'cloud')} placeholder="gpt-4o" sx={{ flex: 1 }} />
+                                  <TextField size="small" label={t('settings.displayName')} value={model.displayName} onChange={(e) => handleUpdateModel(provider.id, model.id, { displayName: e.target.value }, 'cloud')} placeholder="GPT-4o" sx={{ flex: 1 }} />
                                   <IconButton size="small" onClick={() => handleRemoveModel(provider.id, model.id, 'cloud')}><DeleteIcon fontSize="small" /></IconButton>
                                 </Box>
                               ))}
@@ -434,25 +727,25 @@ export const SettingsDialog = ({ open, onClose }: SettingsDialogProps) => {
           <Divider sx={{ my: 2 }} />
 
           {/* Local Providers Section */}
-          <Box>
+          <Box id="section-llm-local">
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                 <DnsIcon fontSize="small" color="secondary" />
-                <Typography variant="body2" sx={{ fontWeight: 500 }}>本地模型</Typography>
+                <Typography variant="body2" sx={{ fontWeight: 500 }}>{t('settings.localModels')}</Typography>
               </Box>
               <Box sx={{ display: 'flex', gap: 1 }}>
-                <Button size="small" startIcon={<TerminalIcon />} onClick={() => handleAddLocalProvider('server')}>端口服务</Button>
+                <Button size="small" startIcon={<TerminalIcon />} onClick={() => handleAddLocalProvider('server')}>{t('settings.addPort')}</Button>
                 {appleDevice && <Button size="small" startIcon={<AppleIcon />} onClick={() => handleAddLocalProvider('mlx')}>MLX</Button>}
               </Box>
             </Box>
 
             {!appleDevice && (
-              <Alert severity="info" sx={{ mb: 1 }}>MLX 模型仅支持 macOS、iPadOS 和 iOS 设备</Alert>
+              <Alert severity="info" sx={{ mb: 1 }}>{t('settings.mlxOnlyApple')}</Alert>
             )}
 
             {localSettings.localProviders.length === 0 ? (
               <Box sx={{ py: 1.5, textAlign: 'center', bgcolor: 'action.hover', borderRadius: 1 }}>
-                <Typography variant="body2" color="text.secondary">暂无本地服务配置</Typography>
+                <Typography variant="body2" color="text.secondary">{t('settings.noLocalConfig')}</Typography>
               </Box>
             ) : (
               <Stack spacing={1}>
@@ -461,34 +754,34 @@ export const SettingsDialog = ({ open, onClose }: SettingsDialogProps) => {
                     <AccordionSummary expandIcon={<ExpandMoreIcon />} sx={{ minHeight: 40, '& .MuiAccordionSummary-content': { my: 0.5 } }}>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, width: '100%', pr: 2 }}>
                         {getLocalProviderIcon(provider.type)}
-                        <Typography variant="body2" sx={{ flex: 1 }}>{provider.name || '未命名服务'}</Typography>
-                        <Chip label={provider.type === 'mlx' ? 'MLX' : '端口'} size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
-                        <Chip label={`${provider.models.length} 模型`} size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
+                        <Typography variant="body2" sx={{ flex: 1 }}>{provider.name || t('settings.unnamedService')}</Typography>
+                        <Chip label={provider.type === 'mlx' ? 'MLX' : t('settings.portService')} size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
+                        <Chip label={`${provider.models.length} ${t('settings.models')}`} size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
                         <IconButton size="small" onClick={(e) => { e.stopPropagation(); handleRemoveLocalProvider(provider.id); }}><DeleteIcon fontSize="small" /></IconButton>
                       </Box>
                     </AccordionSummary>
                     <AccordionDetails>
                       <Stack spacing={1.5}>
-                        <TextField fullWidth label="服务名称" value={provider.name} onChange={(e) => handleUpdateLocalProvider(provider.id, { name: e.target.value })} size="small" />
+                        <TextField fullWidth label={t('settings.serviceName')} value={provider.name} onChange={(e) => handleUpdateLocalProvider(provider.id, { name: e.target.value })} size="small" />
                         <FormControl size="small">
-                          <FormLabel>服务类型</FormLabel>
+                          <FormLabel>{t('settings.serverType')}</FormLabel>
                           <Select
                             value={provider.type}
                             onChange={(e) => handleUpdateLocalProvider(provider.id, { type: e.target.value as LocalProviderType, endpoint: e.target.value === 'mlx' ? '' : 'http://localhost:11434' })}
                             disabled={!appleDevice && provider.type === 'mlx'}
                           >
-                            <MenuItem value="server">端口服务 (Ollama等)</MenuItem>
-                            <MenuItem value="mlx" disabled={!appleDevice}>MLX (Apple Silicon)</MenuItem>
+                            <MenuItem value="server">{t('settings.server')}</MenuItem>
+                            <MenuItem value="mlx" disabled={!appleDevice}>{t('settings.mlx')}</MenuItem>
                           </Select>
                         </FormControl>
                         {provider.type === 'server' && (
-                          <TextField fullWidth label="服务地址" value={provider.endpoint} onChange={(e) => handleUpdateLocalProvider(provider.id, { endpoint: e.target.value })} placeholder="http://localhost:11434" size="small" />
+                          <TextField fullWidth label={t('settings.serviceAddress')} value={provider.endpoint} onChange={(e) => handleUpdateLocalProvider(provider.id, { endpoint: e.target.value })} placeholder="http://localhost:11434" size="small" />
                         )}
                         {provider.type === 'mlx' && (
-                          <Alert severity="info">MLX 模型使用 Apple Silicon 的 GPU 加速，无需配置服务地址</Alert>
+                          <Alert severity="info">{t('settings.mlxInfo')}</Alert>
                         )}
                         {provider.type === 'server' && (
-                          <Button variant="outlined" size="small" onClick={() => handleTestConnection(provider.id, 'local')} sx={{ alignSelf: 'flex-start' }}>测试连接</Button>
+                          <Button variant="outlined" size="small" onClick={() => handleTestConnection(provider.id, 'local')} sx={{ alignSelf: 'flex-start' }}>{t('settings.testConnection')}</Button>
                         )}
                         {testResults[`local-${provider.id}`] && (
                           <Alert severity={testResults[`local-${provider.id}`].success ? 'success' : 'error'}>{testResults[`local-${provider.id}`].message}</Alert>
@@ -497,30 +790,30 @@ export const SettingsDialog = ({ open, onClose }: SettingsDialogProps) => {
                         <Box>
                           <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                              <Typography variant="body2">模型列表</Typography>
+                              <Typography variant="body2">{t('settings.modelList')}</Typography>
                               {provider.type === 'mlx' && (
                                 <Typography variant="caption" color="text.secondary">
-                                  (HuggingFace ID 或本地绝对路径)
+                                  {t('settings.huggingfaceHint')}
                                 </Typography>
                               )}
                             </Box>
-                            <Button size="small" startIcon={<AddIcon />} onClick={() => handleAddModel(provider.id, 'local')}>添加</Button>
+                            <Button size="small" startIcon={<AddIcon />} onClick={() => handleAddModel(provider.id, 'local')}>{t('common.add')}</Button>
                           </Box>
                           {provider.models.length === 0 ? (
-                            <Typography variant="body2" color="text.secondary">暂无模型配置</Typography>
+                            <Typography variant="body2" color="text.secondary">{t('settings.noModels')}</Typography>
                           ) : (
                             <Stack spacing={1}>
                               {provider.models.map((model) => (
                                 <Box key={model.id} sx={{ display: 'flex', gap: 1, alignItems: 'center', p: 1, bgcolor: 'action.hover', borderRadius: 1 }}>
                                   <TextField
                                     size="small"
-                                    label="模型路径"
+                                    label={t('settings.modelPath')}
                                     value={model.modelName}
                                     onChange={(e) => handleUpdateModel(provider.id, model.id, { modelName: e.target.value }, 'local')}
                                     placeholder={provider.type === 'mlx' ? 'mlx-community/Llama-3.2-3B-Instruct-4bit' : 'llama3'}
                                     sx={{ flex: 1 }}
                                   />
-                                  <TextField size="small" label="显示名称" value={model.displayName} onChange={(e) => handleUpdateModel(provider.id, model.id, { displayName: e.target.value }, 'local')} placeholder="Llama 3" sx={{ flex: 1 }} />
+                                  <TextField size="small" label={t('settings.displayName')} value={model.displayName} onChange={(e) => handleUpdateModel(provider.id, model.id, { displayName: e.target.value }, 'local')} placeholder="Llama 3" sx={{ flex: 1 }} />
                                   <IconButton size="small" onClick={() => handleRemoveModel(provider.id, model.id, 'local')}><DeleteIcon fontSize="small" /></IconButton>
                                 </Box>
                               ))}
@@ -535,10 +828,31 @@ export const SettingsDialog = ({ open, onClose }: SettingsDialogProps) => {
             )}
           </Box>
         </Box>
+        </Box>
       </DialogContent>
       <DialogActions>
-        <Button onClick={handleClose}>关闭</Button>
+        <Button onClick={handleClose}>{t('common.close')}</Button>
       </DialogActions>
+
+      {/* Confirm Clean Dialog */}
+      <ConfirmDialog open={confirmDialogOpen.open} onClose={() => setConfirmDialogOpen({ open: false, type: 'chat', months: 3 })}>
+        <ConfirmDialogTitle>{t('settings.cleanConfirmTitle')}</ConfirmDialogTitle>
+        <ConfirmDialogContent>
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            {t('settings.cleanConfirmMessage', {
+              months: confirmDialogOpen.months === 999 ? t('settings.allTime') : confirmDialogOpen.months,
+              type: confirmDialogOpen.type === 'chat' ? t('settings.chatHistory')
+                : confirmDialogOpen.type === 'reading' ? t('settings.readingHistory')
+                : confirmDialogOpen.type === 'article' ? t('settings.articleDatabase')
+                : t('settings.pdfFiles')
+            })}
+          </Alert>
+        </ConfirmDialogContent>
+        <ConfirmDialogActions>
+          <Button onClick={() => setConfirmDialogOpen({ open: false, type: 'chat', months: 3 })}>{t('common.cancel')}</Button>
+          <Button variant="contained" color="error" onClick={handleConfirmClean}>{t('common.confirm')}</Button>
+        </ConfirmDialogActions>
+      </ConfirmDialog>
     </Dialog>
   );
 };

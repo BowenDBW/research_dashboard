@@ -4,7 +4,7 @@ export interface HistoryRecord {
   id: string;
   articleId: string;
   article: Article;
-  action: 'view_abstract' | 'view_source' | 'favorite' | 'download';
+  action: 'view_abstract' | 'view_source' | 'favorite' | 'download' | 'chat';
   timestamp: string;
 }
 

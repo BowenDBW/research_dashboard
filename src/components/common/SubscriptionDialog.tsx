@@ -11,6 +11,7 @@ import {
   Box,
   Typography,
 } from '@mui/material';
+import { useTranslation } from 'react-i18next';
 import { useSubscriptionStore } from '../../stores/useSubscriptionStore';
 
 interface SubscriptionDialogProps {
@@ -19,6 +20,7 @@ interface SubscriptionDialogProps {
 }
 
 export const SubscriptionDialog = ({ open, onClose }: SubscriptionDialogProps) => {
+  const { t } = useTranslation();
   const { keywords, authors, updateSubscriptions } = useSubscriptionStore();
   const [localKeywords, setLocalKeywords] = useState<string[]>(keywords);
   const [localAuthors, setLocalAuthors] = useState<string[]>(authors);
@@ -39,11 +41,11 @@ export const SubscriptionDialog = ({ open, onClose }: SubscriptionDialogProps) =
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
-      <DialogTitle>订阅设置</DialogTitle>
+      <DialogTitle>{t('subscription.settings')}</DialogTitle>
       <DialogContent>
         <Box sx={{ mb: 3 }}>
           <Typography variant="subtitle2" gutterBottom>
-            关键词
+            {t('subscription.keywords')}
           </Typography>
           <Autocomplete
             multiple
@@ -58,14 +60,14 @@ export const SubscriptionDialog = ({ open, onClose }: SubscriptionDialogProps) =
               },
             }}
             renderInput={(params) => (
-              <TextField {...params} placeholder="输入关键词后回车添加" size="small" />
+              <TextField {...params} placeholder={t('subscription.keywordPlaceholder')} size="small" />
             )}
           />
         </Box>
 
         <Box>
           <Typography variant="subtitle2" gutterBottom>
-            订阅作者
+            {t('subscription.subscribedAuthors')}
           </Typography>
           <Autocomplete
             multiple
@@ -80,15 +82,15 @@ export const SubscriptionDialog = ({ open, onClose }: SubscriptionDialogProps) =
               },
             }}
             renderInput={(params) => (
-              <TextField {...params} placeholder="输入作者名后回车添加" size="small" />
+              <TextField {...params} placeholder={t('subscription.authorPlaceholder')} size="small" />
             )}
           />
         </Box>
       </DialogContent>
       <DialogActions>
-        <Button onClick={handleCancel}>取消</Button>
+        <Button onClick={handleCancel}>{t('common.cancel')}</Button>
         <Button variant="contained" onClick={handleSave}>
-          保存
+          {t('common.save')}
         </Button>
       </DialogActions>
     </Dialog>

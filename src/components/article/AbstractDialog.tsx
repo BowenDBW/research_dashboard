@@ -29,6 +29,7 @@ import {
   ExpandMore as ExpandMoreIcon,
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { Article, FavoriteItem } from '../../types';
 import { useFavoriteStore } from '../../stores/useFavoriteStore';
 import { useChatStore } from '../../stores/useChatStore';
@@ -57,6 +58,7 @@ export const AbstractDialog = ({
   hideActions = false,
 }: AbstractDialogProps) => {
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const [selectFolderDialogOpen, setSelectFolderDialogOpen] = useState(false);
   const [unfavoriteConfirmOpen, setUnfavoriteConfirmOpen] = useState(false);
   const [folders, setFolders] = useState<FolderItem[]>([]);
@@ -111,7 +113,7 @@ export const AbstractDialog = ({
   const handleSelectFolder = async (folderId: string | null) => {
     await addFavorite(article, folderId);
     onFavoriteChange?.(true);
-    setSnackbarMessage('已添加到收藏夹');
+    setSnackbarMessage(t('article.addToFavorites'));
     setSnackbarOpen(true);
     setSelectFolderDialogOpen(false);
   };
@@ -119,7 +121,7 @@ export const AbstractDialog = ({
   const handleConfirmUnfavorite = async () => {
     await removeFavorite(article.id);
     onFavoriteChange?.(false);
-    setSnackbarMessage('已取消收藏');
+    setSnackbarMessage(t('article.removedFromFavorites'));
     setSnackbarOpen(true);
     setUnfavoriteConfirmOpen(false);
   };
@@ -185,10 +187,12 @@ export const AbstractDialog = ({
               <Typography variant="h6" sx={{ fontWeight: 600 }}>
                 {article.title}
               </Typography>
-              <IconButton size="small" onClick={handleAskAI} color="secondary" sx={{ p: 0.5 }}>
-                <AutoAwesomeIcon sx={{ fontSize: 20 }} />
-                <Typography variant="h6" sx={{ fontWeight: 600, ml: 0.5 }}>ASK AI</Typography>
-              </IconButton>
+              <Tooltip title={t('article.aiSummary')} arrow>
+                <IconButton size="small" onClick={handleAskAI} color="secondary" sx={{ p: 0.5 }}>
+                  <AutoAwesomeIcon sx={{ fontSize: 20 }} />
+                  <Typography variant="h6" sx={{ fontWeight: 600, ml: 0.5 }}>{t('article.askAI')}</Typography>
+                </IconButton>
+              </Tooltip>
             </Box>
           </Box>
           <IconButton
@@ -200,20 +204,20 @@ export const AbstractDialog = ({
         </DialogTitle>
         <DialogContent dividers>
           <Typography variant="subtitle2" gutterBottom>
-            作者: {article.authors.join(', ')}
+            {t('article.authors')}: {article.authors.join(', ')}
           </Typography>
           <Typography variant="body2" color="text.secondary" gutterBottom>
-            来源: {article.source} | 发布日期: {article.publishDate}
+            {t('article.source')}: {article.source} | {t('article.publishedDate')}: {article.publishDate}
           </Typography>
           <Typography variant="h6" sx={{ mt: 3, mb: 1 }}>
-            摘要
+            {t('article.abstract')}
           </Typography>
           <Typography variant="body1">{article.abstract}</Typography>
         </DialogContent>
         {!hideActions && (
           <DialogActions sx={{ px: 3, py: 2, justifyContent: 'space-between' }}>
           <Box sx={{ display: 'flex', gap: 1 }}>
-            <Tooltip title={isFavorited ? '取消收藏' : '收藏'}>
+            <Tooltip title={isFavorited ? t('article.unfavoriteTooltip') : t('article.favoriteTooltip')}>
               <IconButton onClick={handleFavoriteClick} color={isFavorited ? 'primary' : 'default'}>
                 {isFavorited ? <BookmarkIcon /> : <BookmarkBorderIcon />}
               </IconButton>
@@ -221,10 +225,10 @@ export const AbstractDialog = ({
           </Box>
           <Box sx={{ display: 'flex', gap: 1 }}>
             <Button startIcon={<OpenInNewIcon />} onClick={handleSource}>
-              来源
+              {t('article.sourceButton')}
             </Button>
             <Button startIcon={<DownloadIcon />} onClick={handleDownload}>
-              PDF
+              {t('article.pdf')}
             </Button>
           </Box>
         </DialogActions>
@@ -233,14 +237,14 @@ export const AbstractDialog = ({
 
       {/* Select Folder Dialog */}
       <Dialog open={selectFolderDialogOpen} onClose={() => setSelectFolderDialogOpen(false)} maxWidth="xs" fullWidth>
-        <DialogTitle>选择收藏夹</DialogTitle>
+        <DialogTitle>{t('article.selectFolder')}</DialogTitle>
         <DialogContent>
           <List sx={{ pt: 1 }}>
             <ListItemButton onClick={() => handleSelectFolder(null)}>
               <ListItemIcon sx={{ minWidth: 36 }}>
                 <FolderIcon sx={{ color: '#FFA726' }} />
               </ListItemIcon>
-              <ListItemText primary="根目录" />
+              <ListItemText primary={t('article.rootFolder')} />
             </ListItemButton>
             {renderFolderTree(folders)}
           </List>
@@ -249,43 +253,43 @@ export const AbstractDialog = ({
           <Box sx={{ mt: 2, pt: 2, borderTop: 1, borderColor: 'divider' }}>
             {!showNewFolderInput ? (
               <Button startIcon={<FolderIcon />} onClick={() => setShowNewFolderInput(true)}>
-                新建文件夹
+                {t('article.newFolder')}
               </Button>
             ) : (
               <Box sx={{ display: 'flex', gap: 1 }}>
                 <TextField
                   size="small"
-                  placeholder="文件夹名称"
+                  placeholder={t('article.folderName')}
                   value={newFolderName}
                   onChange={(e) => setNewFolderName(e.target.value)}
                   autoFocus
                   fullWidth
                 />
                 <Button variant="contained" onClick={handleCreateNewFolder}>
-                  创建
+                  {t('article.create')}
                 </Button>
                 <Button onClick={() => { setShowNewFolderInput(false); setNewFolderName(''); }}>
-                  取消
+                  {t('common.cancel')}
                 </Button>
               </Box>
             )}
           </Box>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setSelectFolderDialogOpen(false)}>取消</Button>
+          <Button onClick={() => setSelectFolderDialogOpen(false)}>{t('common.cancel')}</Button>
         </DialogActions>
       </Dialog>
 
       {/* Unfavorite Confirm Dialog */}
       <Dialog open={unfavoriteConfirmOpen} onClose={() => setUnfavoriteConfirmOpen(false)}>
-        <DialogTitle>取消收藏</DialogTitle>
+        <DialogTitle>{t('article.confirmUnfavoriteTitle')}</DialogTitle>
         <DialogContent>
-          <Typography>确认取消收藏该文章？</Typography>
+          <Typography>{t('article.confirmUnfavorite')}</Typography>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setUnfavoriteConfirmOpen(false)}>取消</Button>
+          <Button onClick={() => setUnfavoriteConfirmOpen(false)}>{t('common.cancel')}</Button>
           <Button variant="contained" color="error" onClick={handleConfirmUnfavorite}>
-            确认取消
+            {t('article.unfavorite')}
           </Button>
         </DialogActions>
       </Dialog>

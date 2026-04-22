@@ -27,6 +27,7 @@ import {
   Article as ArticleIcon,
 } from '@mui/icons-material';
 import dayjs from 'dayjs';
+import { useTranslation } from 'react-i18next';
 import { useDailyStore } from '../../stores/useDailyStore';
 import { DailyRecommendationDialog } from '../../components/daily/DailyRecommendationDialog';
 
@@ -34,6 +35,7 @@ const PAGE_SIZE_OPTIONS = [5, 10, 20] as const;
 
 const DailyPage = () => {
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const { recommendations, totalRecommendations, loading, fetchRecommendations } = useDailyStore();
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(5);
@@ -82,11 +84,11 @@ const DailyPage = () => {
               <ArrowBackIcon />
             </IconButton>
             <Typography variant="h6" sx={{ ml: 2 }}>
-              Google 推荐
+              {t('dailyReport.recommendations')}
             </Typography>
             <Box sx={{ flex: 1 }} />
             <DatePicker
-              label="选择月份"
+              label={t('dailyReport.selectMonth')}
               views={['year', 'month']}
               value={searchMonth}
               onChange={handleMonthChange}
@@ -116,7 +118,7 @@ const DailyPage = () => {
               ))
             ) : recommendations.length === 0 ? (
               <Box sx={{ textAlign: 'center', py: 6 }}>
-                <Typography color="text.secondary">暂无推荐</Typography>
+                <Typography color="text.secondary">{t('dailyReport.noRecommendationsShort')}</Typography>
               </Box>
             ) : (
               recommendations.map((rec) => (
@@ -142,7 +144,7 @@ const DailyPage = () => {
                       </Box>
                       <Chip
                         icon={<ArticleIcon />}
-                        label={`${rec.articleCount} 篇`}
+                        label={t('dailyReport.articleCount', { count: rec.articleCount })}
                         size="small"
                         variant="outlined"
                         color="primary"
@@ -173,15 +175,15 @@ const DailyPage = () => {
             }}
           >
             <FormControl size="small" sx={{ minWidth: 100 }}>
-              <InputLabel>每页显示</InputLabel>
+              <InputLabel>{t('dailyReport.perPage')}</InputLabel>
               <Select
                 value={pageSize}
-                label="每页显示"
+                label={t('dailyReport.perPage')}
                 onChange={handlePageSizeChange}
               >
                 {PAGE_SIZE_OPTIONS.map((size) => (
                   <MenuItem key={size} value={size}>
-                    {size} 条
+                    {t('dailyReport.articleCount', { count: size })}
                   </MenuItem>
                 ))}
               </Select>

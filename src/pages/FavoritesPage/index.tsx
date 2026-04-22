@@ -36,6 +36,7 @@ import {
   ContentPaste as ContentPasteIcon,
   Info as InfoIcon,
 } from '@mui/icons-material';
+import { useTranslation } from 'react-i18next';
 import { useFavoriteStore } from '../../stores/useFavoriteStore';
 import { ConfirmDialog } from '../../components/common/ConfirmDialog';
 import { ContextMenu } from '../../components/common/ContextMenu';
@@ -44,6 +45,7 @@ import { Article } from '../../types';
 
 const FavoritesPage = () => {
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const { folderId } = useParams();
   const {
     currentFolderId,
@@ -155,14 +157,14 @@ const FavoritesPage = () => {
 
   const folderContextMenuItems = [
     {
-      label: '修改文件夹',
+      label: t('favorites.renameFolder'),
       icon: <EditIcon />,
       onClick: () => {
         setRenameDialogOpen(true);
       },
     },
     {
-      label: '删除文件夹',
+      label: t('favorites.deleteFolder'),
       icon: <DeleteIcon />,
       danger: true,
       onClick: () => {
@@ -170,7 +172,7 @@ const FavoritesPage = () => {
       },
     },
     {
-      label: '剪贴文件夹',
+      label: t('favorites.cutFolder'),
       icon: <ContentCutIcon />,
       onClick: () => {
         if (selectedFolderId) {
@@ -182,21 +184,21 @@ const FavoritesPage = () => {
 
   const fileContextMenuItems = (article: Article, _itemId: string) => [
     {
-      label: '属性',
+      label: t('favorites.properties'),
       icon: <InfoIcon />,
       onClick: () => {
         handleArticleClick(article);
       },
     },
     {
-      label: '剪贴',
+      label: t('favorites.cut'),
       icon: <ContentCutIcon />,
       onClick: () => {
         // 这里可以添加剪贴逻辑
       },
     },
     {
-      label: '取消收藏',
+      label: t('favorites.unfavorite'),
       icon: <DeleteIcon />,
       danger: true,
       onClick: () => {
@@ -207,14 +209,14 @@ const FavoritesPage = () => {
 
   const emptyContextMenuItems = [
     {
-      label: '新建文件夹',
+      label: t('favorites.newFolder'),
       icon: <AddIcon />,
       onClick: () => setNewFolderDialogOpen(true),
     },
     ...(clipboard
       ? [
           {
-            label: '粘贴文件夹',
+            label: t('favorites.pasteFolder'),
             icon: <ContentPasteIcon />,
             onClick: handlePaste,
           },
@@ -237,7 +239,7 @@ const FavoritesPage = () => {
             onClick={() => setNewFolderDialogOpen(true)}
             sx={{ ml: 2 }}
           >
-            新建文件夹
+            {t('favorites.newFolder')}
           </Button>
           <IconButton
             onClick={() => {
@@ -263,7 +265,7 @@ const FavoritesPage = () => {
               onClick={() => handleBreadcrumbClick(node.id)}
               sx={{ cursor: 'pointer' }}
             >
-              {node.name}
+              {node.id === null ? t('favorites.rootFolder') : node.name}
             </Link>
           ))}
         </Breadcrumbs>
@@ -351,7 +353,7 @@ const FavoritesPage = () => {
                   }}
                 >
                   <Typography color="text.secondary">
-                    当前文件夹为空，右键点击此处新建文件夹
+                    {t('favorites.emptyFolder')}
                   </Typography>
                 </Box>
               </ContextMenu>
@@ -376,49 +378,49 @@ const FavoritesPage = () => {
 
       {/* Dialogs */}
       <Dialog open={newFolderDialogOpen} onClose={() => setNewFolderDialogOpen(false)}>
-        <DialogTitle>新建文件夹</DialogTitle>
+        <DialogTitle>{t('favorites.newFolder')}</DialogTitle>
         <DialogContent>
           <TextField
             autoFocus
             fullWidth
-            label="文件夹名称"
+            label={t('favorites.folderName')}
             value={newFolderName}
             onChange={(e) => setNewFolderName(e.target.value)}
             sx={{ mt: 1 }}
           />
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setNewFolderDialogOpen(false)}>取消</Button>
+          <Button onClick={() => setNewFolderDialogOpen(false)}>{t('common.cancel')}</Button>
           <Button variant="contained" onClick={handleNewFolder}>
-            创建
+            {t('favorites.create')}
           </Button>
         </DialogActions>
       </Dialog>
 
       <Dialog open={renameDialogOpen} onClose={() => setRenameDialogOpen(false)}>
-        <DialogTitle>修改文件夹名称</DialogTitle>
+        <DialogTitle>{t('favorites.renameFolder')}</DialogTitle>
         <DialogContent>
           <TextField
             autoFocus
             fullWidth
-            label="新名称"
+            label={t('favorites.newName')}
             value={newFolderName}
             onChange={(e) => setNewFolderName(e.target.value)}
             sx={{ mt: 1 }}
           />
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setRenameDialogOpen(false)}>取消</Button>
+          <Button onClick={() => setRenameDialogOpen(false)}>{t('common.cancel')}</Button>
           <Button variant="contained" onClick={handleRenameFolder}>
-            保存
+            {t('common.save')}
           </Button>
         </DialogActions>
       </Dialog>
 
       <ConfirmDialog
         open={deleteDialogOpen}
-        title="删除文件夹"
-        message="确认删除该文件夹及其全部内容？此操作不可撤销。"
+        title={t('favorites.deleteFolder')}
+        message={t('favorites.deleteConfirm')}
         severity="error"
         onConfirm={handleDeleteFolder}
         onCancel={() => setDeleteDialogOpen(false)}
@@ -426,8 +428,8 @@ const FavoritesPage = () => {
 
       <ConfirmDialog
         open={removeFavoriteDialogOpen}
-        title="取消收藏"
-        message="确认取消收藏该文章？"
+        title={t('favorites.unfavorite')}
+        message={t('favorites.unfavoriteConfirm')}
         severity="warning"
         onConfirm={handleRemoveFavorite}
         onCancel={() => setRemoveFavoriteDialogOpen(false)}

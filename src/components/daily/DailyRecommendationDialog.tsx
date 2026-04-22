@@ -14,6 +14,7 @@ import {
   Article as ArticleIcon,
   CalendarToday as CalendarIcon,
 } from '@mui/icons-material';
+import { useTranslation } from 'react-i18next';
 import { useDailyStore } from '../../stores/useDailyStore';
 import { ArticleCard } from '../article/ArticleCard';
 import { DailyRecommendation } from '../../types';
@@ -25,6 +26,7 @@ interface DailyRecommendationDialogProps {
 }
 
 export const DailyRecommendationDialog = ({ open, recommendationId, onClose }: DailyRecommendationDialogProps) => {
+  const { t } = useTranslation();
   const { fetchRecommendationById, loading } = useDailyStore();
   const [recommendation, setRecommendation] = useState<DailyRecommendation | null>(null);
 
@@ -64,7 +66,7 @@ export const DailyRecommendationDialog = ({ open, recommendationId, onClose }: D
                 />
                 <Chip
                   icon={<ArticleIcon />}
-                  label={`${recommendation?.articleCount || 0} 篇`}
+                  label={t('dailyRecommendation.articleCount', { count: recommendation?.articleCount || 0 })}
                   size="small"
                   variant="outlined"
                   color="primary"
@@ -91,7 +93,7 @@ export const DailyRecommendationDialog = ({ open, recommendationId, onClose }: D
             ))}
           </Box>
         ) : (
-          <Typography color="text.secondary">加载失败</Typography>
+          <Typography color="text.secondary">{t('dailyRecommendation.loadFailed')}</Typography>
         )}
       </DialogContent>
     </Dialog>

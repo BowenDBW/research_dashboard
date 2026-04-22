@@ -17,9 +17,9 @@ interface SettingsStore {
 }
 
 const defaultSettings: AppSettings = {
-  crawlerSources: ['arxiv', 'semantic_scholar'],
+  crawlerCategories: ['cs.AI', 'cs.CL', 'cs.CV', 'cs.LG'],
   crawlIntervalHours: 4,
-  databasePath: '/path/to/database',
+  pdfStoragePath: '~/.research_dashboard',
   autoLaunch: false,
   cloudProviders: [
     {
