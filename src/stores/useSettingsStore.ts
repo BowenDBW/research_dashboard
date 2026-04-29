@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { invoke } from '@tauri-apps/api/core';
 import { AppSettings, ConnectionTestResult, CloudProviderConfig, LocalProviderConfig } from '../types';
 
 interface SettingsStore {
@@ -16,122 +17,134 @@ interface SettingsStore {
   testConnection: (providerId: string, type: 'cloud' | 'local') => Promise<ConnectionTestResult>;
 }
 
-const defaultSettings: AppSettings = {
-  crawlerCategories: ['cs.AI', 'cs.CL', 'cs.CV', 'cs.LG'],
+// 仅保留一个空壳占位符，防止在 Rust 数据返回前 React 渲染报错（不要再在这里手写假数据了！）
+const emptyState: AppSettings = {
+  crawlerCategories: [],
   crawlIntervalHours: 4,
-  pdfStoragePath: '~/.research_dashboard',
+  lastCrawlTime: undefined,
+  pdfStoragePath: '',
   autoLaunch: false,
-  cloudProviders: [
-    {
-      id: 'openai-default',
-      name: 'OpenAI',
-      endpoint: 'https://api.openai.com/v1',
-      apiKey: '',
-      models: [
-        { id: 'gpt-4o-default', modelName: 'gpt-4o', displayName: 'GPT-4o' },
-      ],
-    },
-  ],
+  cloudProviders: [],
   localProviders: [],
-  selectedModelId: 'gpt-4o-default',
+  selectedModelId: null,
 };
 
 export const useSettingsStore = create<SettingsStore>((set, get) => ({
-  settings: defaultSettings,
-  loading: false,
+  settings: emptyState,
+  loading: true,
 
   loadSettings: async () => {
     set({ loading: true });
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    set({ loading: false });
+
+    try {
+      // 100% 依赖 Tauri/Rust 返回真实数据，没有兜底逻辑和假合并了
+      const savedSettings = await invoke<AppSettings>('get_settings');
+      set({ settings: savedSettings });
+    } catch (err) {
+      console.error('Failed to load settings from Rust backend', err);
+    } finally {
+      set({ loading: false });
+    }
   },
 
   updateSettings: async (partial) => {
-    set((state) => ({
-      settings: { ...state.settings, ...partial },
-    }));
+    set((state) => {
+      const newSettings = { ...state.settings, ...partial };
+      // 异步通过 Rust 写入磁盘
+      invoke('save_settings', { settings: newSettings }).catch(console.error);
+      return { settings: newSettings };
+    });
   },
 
   addCloudProvider: async (provider) => {
-    set((state) => ({
-      settings: {
+    set((state) => {
+      const newSettings = {
         ...state.settings,
         cloudProviders: [...state.settings.cloudProviders, provider],
-      },
-    }));
+      };
+      invoke('save_settings', { settings: newSettings }).catch(console.error);
+      return { settings: newSettings };
+    });
   },
 
   updateCloudProvider: async (id, provider) => {
-    set((state) => ({
-      settings: {
+    set((state) => {
+      const newSettings = {
         ...state.settings,
         cloudProviders: state.settings.cloudProviders.map((p) =>
           p.id === id ? { ...p, ...provider } : p
         ),
-      },
-    }));
+      };
+      invoke('save_settings', { settings: newSettings }).catch(console.error);
+      return { settings: newSettings };
+    });
   },
 
   removeCloudProvider: async (id) => {
-    set((state) => ({
-      settings: {
+    set((state) => {
+      const newSettings = {
         ...state.settings,
         cloudProviders: state.settings.cloudProviders.filter((p) => p.id !== id),
-      },
-    }));
+      };
+      invoke('save_settings', { settings: newSettings }).catch(console.error);
+      return { settings: newSettings };
+    });
   },
 
   addLocalProvider: async (provider) => {
-    set((state) => ({
-      settings: {
+    set((state) => {
+      const newSettings = {
         ...state.settings,
         localProviders: [...state.settings.localProviders, provider],
-      },
-    }));
+      };
+      invoke('save_settings', { settings: newSettings }).catch(console.error);
+      return { settings: newSettings };
+    });
   },
 
   updateLocalProvider: async (id, provider) => {
-    set((state) => ({
-      settings: {
+    set((state) => {
+      const newSettings = {
         ...state.settings,
         localProviders: state.settings.localProviders.map((p) =>
           p.id === id ? { ...p, ...provider } : p
         ),
-      },
-    }));
+      };
+      invoke('save_settings', { settings: newSettings }).catch(console.error);
+      return { settings: newSettings };
+    });
   },
 
   removeLocalProvider: async (id) => {
-    set((state) => ({
-      settings: {
+    set((state) => {
+      const newSettings = {
         ...state.settings,
         localProviders: state.settings.localProviders.filter((p) => p.id !== id),
-      },
-    }));
+      };
+      invoke('save_settings', { settings: newSettings }).catch(console.error);
+      return { settings: newSettings };
+    });
   },
 
   setSelectedModel: async (modelId) => {
-    set((state) => ({
-      settings: { ...state.settings, selectedModelId: modelId },
-    }));
+    set((state) => {
+      const newSettings = { ...state.settings, selectedModelId: modelId };
+      invoke('save_settings', { settings: newSettings }).catch(console.error);
+      return { settings: newSettings };
+    });
   },
 
   testConnection: async (providerId, type) => {
-    const { settings } = get();
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-
-    if (type === 'cloud') {
-      const provider = settings.cloudProviders.find((p) => p.id === providerId);
-      if (provider?.apiKey) {
-        return { success: true, message: '连接成功！API Key 有效。' };
-      }
-      return { success: false, message: '请输入有效的 API Key' };
-    } else {
-      const provider = settings.localProviders.find((p) => p.id === providerId);
-      if (provider?.endpoint) {
-        return { success: true, message: '连接成功！本地服务可用。' };
-      }
-      return { success: false, message: '请输入有效的服务地址' };
+    try {
+      // 真正连通后端，交由 Rust 发起网络请求去验证
+      return await invoke<ConnectionTestResult>('test_connection', {
+        providerId,
+        providerType: type
+      });
+    } catch (err: any) {
+      console.error('Backend connection test failed:', err);
+      return { success: false, message: `后端无响应或发生错误: ${err.toString()}` };
     }
   },
 }));
+

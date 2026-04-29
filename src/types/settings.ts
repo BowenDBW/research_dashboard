@@ -25,6 +25,7 @@ export interface LocalProviderConfig {
 export interface AppSettings {
   crawlerCategories: string[]; // Arxiv category codes (e.g., "cs.AI", "cs.LG")
   crawlIntervalHours: number;
+  lastCrawlTime?: string; // Add last crawl time
   pdfStoragePath: string; // Path for storing downloaded PDFs
   autoLaunch: boolean;
   // Cloud and local providers - both can be configured simultaneously

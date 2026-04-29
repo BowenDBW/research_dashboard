@@ -494,7 +494,15 @@ export const RightToolbar = ({ open, onToggle }: RightToolbarProps) => {
                   {t('rightToolbar.lastCrawl')}:
                 </Typography>
                 <Typography variant="body2">
-                  2024-01-10
+                  {settings.lastCrawlTime
+                    ? new Date(settings.lastCrawlTime).toLocaleString('zh-CN', {
+                        year: 'numeric',
+                        month: '2-digit',
+                        day: '2-digit',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })
+                    : 'N/A'}
                 </Typography>
               </Box>
             </Box>
@@ -504,6 +512,7 @@ export const RightToolbar = ({ open, onToggle }: RightToolbarProps) => {
                 {t('rightToolbar.totalArticles')}:
               </Typography>
               <Typography variant="body2">
+                {/* TODO: 从数据库统计文章总数 */}
                 1,234 {t('rightToolbar.articlesCount')}
               </Typography>
             </Box>
@@ -571,6 +580,10 @@ export const RightToolbar = ({ open, onToggle }: RightToolbarProps) => {
               startIcon={<RefreshIcon />}
               fullWidth
               sx={{ mt: 0.5 }}
+              onClick={() => {
+                // Simulate an update to the last crawl time when clicking Refresh
+                updateSettings({ lastCrawlTime: new Date().toISOString().slice(0, 16).replace('T', ' ') });
+              }}
             >
               {t('rightToolbar.crawlNow')}
             </Button>
