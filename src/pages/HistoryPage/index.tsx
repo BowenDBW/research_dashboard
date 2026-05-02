@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Box,
@@ -21,12 +21,14 @@ import { DatePicker as MuiDatePicker } from '@mui/x-date-pickers/DatePicker';
 import {
   ArrowBack as ArrowBackIcon,
   AutoAwesome as AutoAwesomeIcon,
+  FilterList as FilterListIcon,
 } from '@mui/icons-material';
 import dayjs from 'dayjs';
-import { useHistoryStore } from '../../stores/useHistoryStore';
-import { useChatStore } from '../../stores/useChatStore';
+import { useHistory } from '../../hooks';
+import { useChat } from '../../hooks';
 import { AbstractDialog } from '../../components/article/AbstractDialog';
 import { useTranslation } from 'react-i18next';
+import { Article } from '../../types';
 
 const ALL_ACTIONS = ['view_abstract', 'view_source', 'favorite', 'download'];
 const CHAT_MODES = ['chat', 'paper_search', 'chapter_summary'];
@@ -34,8 +36,8 @@ const CHAT_MODES = ['chat', 'paper_search', 'chapter_summary'];
 const HistoryPage = () => {
   const navigate = useNavigate();
   const { t } = useTranslation();
-  const { records, setFilters } = useHistoryStore();
-  const { sessions, messages } = useChatStore();
+  const { records, totalCount, page, pageSize, fetchRecords, setFilters, setPage } = useHistory();
+  const { sessions, messages } = useChat();
   const [startDate, setStartDate] = useState<dayjs.Dayjs | null>(dayjs().subtract(7, 'day'));
   const [endDate, setEndDate] = useState<dayjs.Dayjs | null>(dayjs());
   const [historyType, setHistoryType] = useState<'reading' | 'chat'>('reading');
@@ -43,8 +45,34 @@ const HistoryPage = () => {
   const [showChatModeFilter, setShowChatModeFilter] = useState(false);
   const [selectedActions, setSelectedActions] = useState<string[]>([...ALL_ACTIONS]);
   const [selectedChatModes, setSelectedChatModes] = useState<string[]>([...CHAT_MODES]);
+  const [deduplicate, setDeduplicate] = useState(false);
   const [abstractDialogOpen, setAbstractDialogOpen] = useState(false);
-  const [selectedArticle, setSelectedArticle] = useState<typeof records[0]['article'] | null>(null);
+  const [selectedArticle, setSelectedArticle] = useState<Article | null>(null);
+
+  // 获取阅读历史数据
+  useEffect(() => {
+    if (historyType === 'reading') {
+      setFilters({
+        dateRange: [
+          startDate ? startDate.format('YYYY-MM-DD') : null,
+          endDate ? endDate.format('YYYY-MM-DD') : null,
+        ],
+        actions: showActionFilter ? selectedActions : [],
+      });
+      fetchRecords();
+    }
+  }, [historyType, startDate, endDate, showActionFilter, selectedActions, page, setFilters, fetchRecords]);
+
+  // 页面可见时刷新数据
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && historyType === 'reading') {
+        fetchRecords();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [historyType, fetchRecords]);
 
   const handleHistoryTypeChange = (_: React.MouseEvent<HTMLElement>, newValue: 'reading' | 'chat' | null) => {
     if (newValue) {
@@ -115,7 +143,7 @@ const HistoryPage = () => {
     }
   };
 
-  // Group records by date
+  // Group records by date, with optional deduplication
   const groupedRecords = records.reduce((acc, record) => {
     const date = new Date(record.timestamp).toLocaleDateString();
     if (!acc[date]) {
@@ -124,6 +152,24 @@ const HistoryPage = () => {
     acc[date].push(record);
     return acc;
   }, {} as Record<string, typeof records>);
+
+  // Deduplicate: keep only the most recent record for each article per day
+  const deduplicatedGroupedRecords = deduplicate
+    ? Object.fromEntries(
+        Object.entries(groupedRecords).map(([date, dateRecords]) => {
+          const uniqueArticles = new Map<string, typeof dateRecords[0]>();
+          // Sort by timestamp descending, then keep first occurrence of each article
+          dateRecords
+            .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+            .forEach((record) => {
+              if (!uniqueArticles.has(record.articleId)) {
+                uniqueArticles.set(record.articleId, record);
+              }
+            });
+          return [date, Array.from(uniqueArticles.values())];
+        })
+      )
+    : groupedRecords;
 
   // Get chat sessions with messages (most recent first)
   const chatHistory = sessions
@@ -215,6 +261,14 @@ const HistoryPage = () => {
                   sx={{ height: 22, fontSize: '0.7rem' }}
                 />
               ))}
+              <Chip
+                label={t('history.deduplicate')}
+                size="small"
+                onClick={() => setDeduplicate(!deduplicate)}
+                color={deduplicate ? 'secondary' : 'default'}
+                variant={deduplicate ? 'filled' : 'outlined'}
+                sx={{ height: 22, fontSize: '0.7rem', ml: 1 }}
+              />
             </Box>
           )}
 
@@ -250,7 +304,7 @@ const HistoryPage = () => {
                 '& .MuiTimelineContent-root': { flex: 0, minWidth: 600, maxWidth: 600 },
               }}
             >
-              {Object.entries(groupedRecords).map(([date, dateRecords]) => (
+              {Object.entries(deduplicatedGroupedRecords).map(([date, dateRecords]) => (
                 <TimelineItem key={date}>
                   <TimelineSeparator>
                     <TimelineDot color="primary" />
@@ -426,7 +480,12 @@ const HistoryPage = () => {
         {/* Pagination - Fixed at bottom */}
         <Paper sx={{ px: 3, py: 1.5, borderTop: 1, borderColor: 'divider', flexShrink: 0 }}>
           <Box sx={{ display: 'flex', justifyContent: 'center' }}>
-            <Pagination count={1} color="primary" />
+            <Pagination
+              count={Math.ceil(totalCount / pageSize)}
+              page={page}
+              onChange={(_, newPage) => setPage(newPage)}
+              color="primary"
+            />
           </Box>
         </Paper>
 

@@ -37,7 +37,7 @@ import {
   Info as InfoIcon,
 } from '@mui/icons-material';
 import { useTranslation } from 'react-i18next';
-import { useFavoriteStore } from '../../stores/useFavoriteStore';
+import { useFavorites } from '../../hooks';
 import { ConfirmDialog } from '../../components/common/ConfirmDialog';
 import { ContextMenu } from '../../components/common/ContextMenu';
 import { AbstractDialog } from '../../components/article/AbstractDialog';
@@ -59,7 +59,7 @@ const FavoritesPage = () => {
     cutFolder,
     pasteFolder,
     removeFavorite,
-  } = useFavoriteStore();
+  } = useFavorites();
 
   const [newFolderDialogOpen, setNewFolderDialogOpen] = useState(false);
   const [renameDialogOpen, setRenameDialogOpen] = useState(false);

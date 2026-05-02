@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Box,
@@ -29,48 +29,45 @@ import {
 } from '@mui/icons-material';
 import dayjs from 'dayjs';
 import { useTranslation } from 'react-i18next';
-import { useArticleStore } from '../../stores/useArticleStore';
 import { useSettingsStore } from '../../stores/useSettingsStore';
+import { useArticles } from '../../hooks';
 import { ArticleCard } from '../../components/article/ArticleCard';
 
 const ArticleListPage = () => {
   const navigate = useNavigate();
   const { t } = useTranslation();
   const { settings } = useSettingsStore();
-  const {
-    articles,
-    totalCount,
-    page,
-    pageSize,
-    loading,
-    filters,
-    setFilters,
-    fetchArticles,
-    setPage,
-    setPageSize,
-  } = useArticleStore();
+  const { articles, totalCount, loading, fetchArticles } = useArticles();
 
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
   const [searchQuery, setSearchQuery] = useState('');
-  const [localSources, setLocalSources] = useState<string[]>(filters.sources);
-  const [localDomains, setLocalDomains] = useState<string[]>(filters.domains);
+  const [localSources, setLocalSources] = useState<string[]>([]);
+  const [localDomains, setLocalDomains] = useState<string[]>([]);
   const [startDate, setStartDate] = useState<dayjs.Dayjs | null>(null);
   const [endDate, setEndDate] = useState<dayjs.Dayjs | null>(null);
   const [showArxivOnly, setShowArxivOnly] = useState(false);
   const [showSubscribedOnly, setShowSubscribedOnly] = useState(false);
-  const [prevShowArxivOnly, setPrevShowArxivOnly] = useState(false);
+
+  const loadArticles = useCallback(() => {
+    fetchArticles({
+      page,
+      pageSize,
+      query: searchQuery || null,
+      startDate: startDate?.format('YYYY-MM-DD') || null,
+      endDate: endDate?.format('YYYY-MM-DD') || null,
+      sources: localSources.length > 0 ? localSources : null,
+      domains: showArxivOnly && localDomains.length > 0 ? localDomains : null,
+      subscribedOnly: showSubscribedOnly,
+    });
+  }, [page, pageSize, searchQuery, startDate, endDate, localSources, localDomains, showArxivOnly, showSubscribedOnly, fetchArticles]);
 
   useEffect(() => {
-    fetchArticles();
-  }, [fetchArticles]);
+    loadArticles();
+  }, [loadArticles]);
 
   const handleFilterChange = () => {
-    setFilters({
-      author: searchQuery,
-      sources: localSources,
-      domains: showArxivOnly ? localDomains : [],
-      dateRange: [startDate?.toISOString() || null, endDate?.toISOString() || null],
-    });
-    fetchArticles();
+    loadArticles();
   };
 
   const handleDomainToggle = (domain: string) => {
@@ -79,7 +76,7 @@ const ArticleListPage = () => {
     );
   };
 
-  const totalPages = Math.ceil(totalCount / pageSize);
+  const totalPages = Math.ceil(totalCount / pageSize) || 1;
 
   return (
     <LocalizationProvider dateAdapter={AdapterDayjs}>
@@ -103,7 +100,6 @@ const ArticleListPage = () => {
                       const checked = e.target.checked;
                       setShowArxivOnly(checked);
                       if (checked) {
-                        // 打开时默认全选已配置的 crawler categories
                         setLocalDomains([...settings.crawlerCategories]);
                       } else {
                         setLocalDomains([]);
@@ -219,7 +215,7 @@ const ArticleListPage = () => {
         {/* Content - Scrollable Area */}
         <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', position: 'relative' }}>
           <Container maxWidth="lg" sx={{ flex: 1, pt: 2, pb: 2, overflow: 'auto', position: 'relative' }}>
-            {/* Top Gradient overlay - 文章滑动时渐变消失 */}
+            {/* Top Gradient overlay */}
             <Box
               sx={{
                 position: 'absolute',
@@ -233,7 +229,7 @@ const ArticleListPage = () => {
               }}
             />
 
-            {/* Bottom Gradient overlay - 文章滑动到底部时渐变消失 */}
+            {/* Bottom Gradient overlay */}
             <Box
               sx={{
                 position: 'absolute',
@@ -275,7 +271,10 @@ const ArticleListPage = () => {
                 <Select
                   value={pageSize}
                   label={t('articles.perPage')}
-                  onChange={(e) => setPageSize(e.target.value as number)}
+                  onChange={(e) => {
+                    setPageSize(e.target.value as number);
+                    setPage(1);
+                  }}
                 >
                   <MenuItem value={5}>{t('articles.itemsPerPage', { count: 5 })}</MenuItem>
                   <MenuItem value={10}>{t('articles.itemsPerPage', { count: 10 })}</MenuItem>

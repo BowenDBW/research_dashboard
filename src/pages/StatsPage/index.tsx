@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom';
-import { useState, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Box,
   AppBar,
@@ -23,7 +23,7 @@ import {
   Chat as ChatIcon,
 } from '@mui/icons-material';
 import { useTranslation } from 'react-i18next';
-import { useHistoryStore } from '../../stores/useHistoryStore';
+import { useStats } from '../../hooks';
 import { MonthlyHeatmap, WeeklyHourHeatmap, DomainChart, KeywordCloud, StatsCard } from '../../components/stats';
 
 type DateMode = 'last30' | 'month';
@@ -31,29 +31,32 @@ type DateMode = 'last30' | 'month';
 const StatsPage = () => {
   const navigate = useNavigate();
   const { t } = useTranslation();
-  const { getStatsData } = useHistoryStore();
+  const { statsData, fetchStats } = useStats();
 
   const [dateMode, setDateMode] = useState<DateMode>('last30');
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
 
-  const dateRange = useMemo(() => {
+  // Fetch stats data on mount and when date changes
+  useEffect(() => {
+    let startDate: string;
+    let endDate: string;
+
     if (dateMode === 'last30') {
       const now = new Date();
       const end = new Date(now.getFullYear(), now.getMonth(), now.getDate());
       const start = new Date(end.getTime() - 29 * 24 * 60 * 60 * 1000);
-      return { start, end };
+      startDate = start.toISOString().split('T')[0];
+      endDate = end.toISOString().split('T')[0];
     } else {
-      // Selected month: from 1st to last day of month
       const start = new Date(selectedYear, selectedMonth, 1);
-      const end = new Date(selectedYear, selectedMonth + 1, 0); // Last day of month
-      return { start, end };
+      const end = new Date(selectedYear, selectedMonth + 1, 0);
+      startDate = start.toISOString().split('T')[0];
+      endDate = end.toISOString().split('T')[0];
     }
-  }, [dateMode, selectedYear, selectedMonth]);
 
-  const statsData = useMemo(() => {
-    return getStatsData(dateRange);
-  }, [getStatsData, dateRange]);
+    fetchStats(startDate, endDate);
+  }, [dateMode, selectedYear, selectedMonth, fetchStats]);
 
   const handleDateModeChange = (_: React.MouseEvent<HTMLElement>, newMode: DateMode | null) => {
     if (newMode) {
@@ -147,28 +150,28 @@ const StatsPage = () => {
             <StatsCard
               icon={<TodayIcon />}
               label={t('stats.todayReading')}
-              value={statsData.readingStats.todayCount}
+              value={statsData?.readingStats?.todayCount ?? 0}
               unit={t('stats.articles')}
               color="#2196f3"
             />
             <StatsCard
               icon={<DateRangeIcon />}
               label={t('stats.monthReading', { month: dateMode === 'last30' ? t('stats.thisMonth') : monthOptions[selectedMonth].label })}
-              value={statsData.readingStats.monthCount}
+              value={statsData?.readingStats?.monthCount ?? 0}
               unit={t('stats.articles')}
               color="#4CAF50"
             />
             <StatsCard
               icon={<BookmarkIcon />}
               label={t('stats.favoritesCount')}
-              value={statsData.readingStats.totalFavorites}
+              value={statsData?.readingStats?.totalFavorites ?? 0}
               unit={t('stats.articles')}
               color="#FF9800"
             />
             <StatsCard
               icon={<ChatIcon />}
               label={t('stats.chatCount')}
-              value={statsData.readingStats.totalChats}
+              value={statsData?.readingStats?.totalChats ?? 0}
               unit={t('stats.times')}
               color="#9C27B0"
             />
@@ -180,14 +183,14 @@ const StatsPage = () => {
               <Typography variant="subtitle1" sx={{ mb: 2, fontWeight: 600 }}>
                 {t('stats.monthlyHeatmap')}
               </Typography>
-              <MonthlyHeatmap data={statsData.heatmapData} size="medium" />
+              <MonthlyHeatmap data={statsData?.heatmapData ?? []} size="medium" />
             </Paper>
             <Paper sx={{ p: 2, flex: 6, display: 'flex', flexDirection: 'column' }}>
               <Typography variant="subtitle1" sx={{ mb: 2, fontWeight: 600 }}>
                 {t('stats.domainDistribution')}
               </Typography>
               <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <DomainChart data={statsData.domainDistribution} />
+                <DomainChart data={statsData?.domainDistribution ?? []} />
               </Box>
             </Paper>
           </Box>
@@ -197,7 +200,7 @@ const StatsPage = () => {
             <Typography variant="subtitle1" sx={{ mb: 2, fontWeight: 600, alignSelf: 'flex-start' }}>
               {t('stats.readingTimeDistribution')}
             </Typography>
-            <WeeklyHourHeatmap data={statsData.dailyHourData} />
+            <WeeklyHourHeatmap data={statsData?.dailyHourData ?? []} />
           </Paper>
 
           {/* Keyword Cloud */}
@@ -205,7 +208,7 @@ const StatsPage = () => {
             <Typography variant="subtitle1" sx={{ mb: 2, fontWeight: 600 }}>
               {t('stats.keywordCloud')}
             </Typography>
-            <KeywordCloud data={statsData.keywords} width={600} height={250} />
+            <KeywordCloud data={statsData?.keywords ?? []} width={600} height={250} />
           </Paper>
         </Stack>
       </Container>

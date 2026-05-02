@@ -71,14 +71,14 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { useFavoriteStore } from '../../stores/useFavoriteStore';
-import { useHistoryStore } from '../../stores/useHistoryStore';
-import { useDailyStore } from '../../stores/useDailyStore';
+import { useFavorites } from '../../hooks';
+import { useHistory } from '../../hooks';
+import { useDaily } from '../../hooks';
 import { useSettingsStore } from '../../stores/useSettingsStore';
-import { useStatsStore } from '../../stores/useStatsStore';
-import { useSubscriptionStore } from '../../stores/useSubscriptionStore';
+import { useStats } from '../../hooks';
+import { useSubscription } from '../../hooks';
 import { DailyRecommendationDialog } from '../daily/DailyRecommendationDialog';
-import { useChatStore } from '../../stores/useChatStore';
+import { useChat } from '../../hooks';
 import { SubscriptionDialog } from '../common/SubscriptionDialog';
 import { AbstractDialog } from '../article/AbstractDialog';
 import { CategorySelectDialog } from '../common/CategorySelectDialog';
@@ -292,13 +292,13 @@ const SortablePanel = ({
 export const RightToolbar = ({ open, onToggle }: RightToolbarProps) => {
   const navigate = useNavigate();
   const { t } = useTranslation();
-  const { items, navigateToFolder } = useFavoriteStore();
-  const { records, fetchRecords } = useHistoryStore();
-  const { recommendations, fetchRecommendations } = useDailyStore();
-  const { sessions, messages, switchSession, fetchSessions } = useChatStore();
+  const { items, navigateToFolder } = useFavorites();
+  const { records, fetchRecords } = useHistory();
+  const { recommendations, fetchRecommendations } = useDaily();
+  const { sessions, messages, switchSession, fetchSessions } = useChat();
   const { settings, updateSettings, loadSettings } = useSettingsStore();
-  const { todayStats, fetchTodayStats, statsData, fetchStats } = useStatsStore();
-  const { authors, categories, keywords, loadSubscriptions } = useSubscriptionStore();
+  const { todayStats, fetchTodayStats, statsData, fetchStats } = useStats();
+  const { authors, categories, keywords, loadSubscriptions } = useSubscription();
   const [subscriptionDialogOpen, setSubscriptionDialogOpen] = useState(false);
   const [expandedPanels, setExpandedPanels] = useState<string[]>([]);
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
@@ -528,7 +528,7 @@ export const RightToolbar = ({ open, onToggle }: RightToolbarProps) => {
                 {t('rightToolbar.totalArticles')}:
               </Typography>
               <Typography variant="body2">
-                {todayStats?.totalPapers?.toLocaleString() || 0} {t('rightToolbar.articlesCount')}
+                {todayStats?.totalPaperCount?.toLocaleString() || 0} {t('rightToolbar.articlesCount')}
               </Typography>
             </Box>
 

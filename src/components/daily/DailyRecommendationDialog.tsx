@@ -15,7 +15,7 @@ import {
   CalendarToday as CalendarIcon,
 } from '@mui/icons-material';
 import { useTranslation } from 'react-i18next';
-import { useDailyStore } from '../../stores/useDailyStore';
+import { useDaily } from '../../hooks';
 import { ArticleCard } from '../article/ArticleCard';
 import { DailyRecommendation } from '../../types';
 
@@ -27,7 +27,7 @@ interface DailyRecommendationDialogProps {
 
 export const DailyRecommendationDialog = ({ open, recommendationId, onClose }: DailyRecommendationDialogProps) => {
   const { t } = useTranslation();
-  const { fetchRecommendationById, loading } = useDailyStore();
+  const { fetchRecommendationById, loading } = useDaily();
   const [recommendation, setRecommendation] = useState<DailyRecommendation | null>(null);
 
   useEffect(() => {

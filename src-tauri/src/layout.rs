@@ -1,7 +1,7 @@
 // Layout configuration module
 // Handles layout.json read/write operations
 
-use crate::database::models::LayoutConfig;
+use crate::models::LayoutConfig;
 use std::fs;
 use std::path::PathBuf;
 
@@ -18,8 +18,8 @@ fn get_layout_path() -> Result<PathBuf, String> {
     Ok(data_dir.join("layout.json"))
 }
 
-/// Get layout configuration
-pub fn get_layout() -> Result<LayoutConfig, String> {
+/// Get layout configuration (internal)
+fn get_layout() -> Result<LayoutConfig, String> {
     let layout_path = get_layout_path()?;
 
     if layout_path.exists() {
@@ -34,12 +34,24 @@ pub fn get_layout() -> Result<LayoutConfig, String> {
     }
 }
 
-/// Save layout configuration
-pub fn save_layout(layout: &LayoutConfig) -> Result<(), String> {
+/// Save layout configuration (internal)
+fn save_layout(layout: &LayoutConfig) -> Result<(), String> {
     let layout_path = get_layout_path()?;
     let content = serde_json::to_string_pretty(layout)
         .map_err(|e| format!("序列化布局失败: {}", e))?;
     fs::write(&layout_path, content)
         .map_err(|e| format!("写入布局文件失败: {}", e))?;
     Ok(())
+}
+
+/// Tauri command: Get layout configuration
+#[tauri::command]
+pub fn get_layout_config() -> Result<LayoutConfig, String> {
+    get_layout()
+}
+
+/// Tauri command: Save layout configuration
+#[tauri::command]
+pub fn save_layout_config(layout: LayoutConfig) -> Result<(), String> {
+    save_layout(&layout)
 }

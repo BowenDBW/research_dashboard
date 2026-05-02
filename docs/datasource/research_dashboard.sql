@@ -10,53 +10,95 @@ drop table if exists favorite_folders;
 drop table if exists paper_authors;
 drop table if exists paper_categories;
 drop table if exists papers;
+drop table if exists venue_rankings;
+drop table if exists venues;
+
+-- ==========================================
+-- 刊会信息与分区系统 (Venues & Rankings)
+-- ==========================================
+
+-- 1. 刊会基本信息表
+create table venues (
+    venue_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,              -- 刊会名称（可能重复，如同名不同刊）
+    abbreviation TEXT,               -- 简称/缩写（如 TOCS, CVPR）
+    issn TEXT,                       -- ISSN（期刊唯一标识）
+    eissn TEXT,                      -- 电子ISSN
+    venue_type TEXT DEFAULT 'journal', -- journal/conference
+    publisher TEXT,                  -- 出版社/主办方
+    url TEXT                         -- 官网/DBLP链接
+);
+
+-- 创建索引加速查询
+create index idx_venues_name on venues(name);
+create index idx_venues_issn on venues(issn);
+create index idx_venues_abbreviation on venues(abbreviation);
+
+-- 2. 刊会分区排名表（一对多：一个刊会可隶属多个分区名单）
+create table venue_rankings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    venue_id INTEGER NOT NULL,
+    ranking_source TEXT NOT NULL,    -- ccf/jcr/sci/ssci
+    ranking_category TEXT,           -- CCF: A/B/C, JCR: Q1/Q2/Q3/Q4, SCI/SSCI: 无分级但有收录
+    ranking_year INTEGER,            -- 分区年份（如CCF 2022, JCR 2024）
+    category_detail TEXT,            -- 详细分类（如CCF子领域、JCR学科、WoS Categories）
+    UNIQUE(venue_id, ranking_source, ranking_year),
+    foreign key (venue_id) references venues (venue_id) ON DELETE CASCADE
+);
+
+create index idx_rankings_venue on venue_rankings(venue_id);
+
+-- ==========================================
+-- 论文核心表 (Papers)
+-- ==========================================
 
 create table papers (
     article_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    title TEXT  NOT NULL,
+    title TEXT NOT NULL,
     abstract TEXT,
     publication_date TEXT,
-    preprint_number TEXT,
-    publication_venue TEXT,
-    publication_link TEXT,
-    pdf_link TEXT,
-    pdf_path TEXT
+    preprint_number TEXT,            -- arXiv号等预印本编号
+    venue_id INTEGER,                -- 外键连接刊会表（替代原publication_venue）
+    publication_link TEXT,           -- 论文链接
+    pdf_link TEXT,                   -- PDF下载链接
+    pdf_path TEXT,                   -- 本地PDF存储路径
+    foreign key (venue_id) references venues (venue_id) ON DELETE SET NULL
 );
 
-create table paper_authors
-(
-    article_id   INTEGER NOT NULL,
-    author_name  TEXT NOT NULL,
-    author_order INTEGER NOT NULL, -- 物理排印的先后顺序（1, 2, 3...）
+-- ==========================================
+-- 论文关联信息 (Authors & Categories)
+-- ==========================================
+
+create table paper_authors (
+    article_id INTEGER NOT NULL,
+    author_name TEXT NOT NULL,
+    author_order INTEGER NOT NULL,   -- 物理排印顺序（1, 2, 3...）
     PRIMARY KEY (article_id, author_order),
     foreign key (article_id) references papers (article_id) ON DELETE CASCADE
 );
 
-create table paper_categories
-(
+create table paper_categories (
     article_id INTEGER NOT NULL,
-    category   TEXT NOT NULL,
+    category TEXT NOT NULL,          -- arXiv分类如 cs.AI, cs.LG
     PRIMARY KEY (article_id, category),
     foreign key (article_id) references papers (article_id) ON DELETE CASCADE
 );
 
 -- ==========================================
--- 收藏与虚拟文件夹系统 (Adjacency List 树形结构)
+-- 收藏与虚拟文件夹系统 (Favorites)
 -- ==========================================
 
--- 1. 文件夹表
 create table favorite_folders (
     folder_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    parent_id INTEGER,         -- 父文件夹的ID。如果为 NULL，代表在根目录
-    folder_name TEXT NOT NULL, -- 文件夹名称
+    parent_id INTEGER,               -- 父文件夹ID，NULL表示根目录
+    folder_name TEXT NOT NULL,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
     foreign key (parent_id) references favorite_folders (folder_id) ON DELETE CASCADE
 );
 
--- 2. 收藏论文表（文件实体）
 create table favorite_papers (
-    article_id INTEGER PRIMARY KEY, -- 如果一篇文章只能放在一个文件夹（剪贴逻辑），用 article_id 做主键。如果支持多路径引用，可用 (article_id, folder_id)
-    folder_id INTEGER,              -- 所属文件夹ID。如果为 NULL，代表直接收藏在根目录
+    article_id INTEGER PRIMARY KEY,  -- 一篇文章只能放在一个文件夹
+    folder_id INTEGER,               -- 所属文件夹ID，NULL表示根目录收藏
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
     foreign key (article_id) references papers (article_id) ON DELETE CASCADE,
     foreign key (folder_id) references favorite_folders (folder_id) ON DELETE CASCADE
@@ -66,24 +108,21 @@ create table favorite_papers (
 -- 订阅系统 (Subscriptions)
 -- ==========================================
 
--- 1. 订阅的作者
 create table subscribed_authors (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    author_name TEXT NOT NULL UNIQUE, -- 作者名字。使用 UNIQUE 防止用户重复订阅同一个人
+    author_name TEXT NOT NULL UNIQUE,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
--- 2. 订阅的领域（仅二级领域）
 create table subscribed_categories (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    category TEXT NOT NULL UNIQUE,    -- 存储常量文件中的二级字段标识（如 "cs.AI"），UNIQUE 防止重复订阅
+    category TEXT NOT NULL UNIQUE,   -- 如 cs.AI, cs.LG
     created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
--- 3. 订阅的关键词
 create table subscribed_keywords (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    keyword TEXT NOT NULL UNIQUE,     -- 用户订阅的关键词（建议存储为全小写以方便忽略大小写查询）
+    keyword TEXT NOT NULL UNIQUE,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -91,40 +130,33 @@ create table subscribed_keywords (
 -- LLM 多轮对话记录系统 (Chat History)
 -- ==========================================
 
--- 1. 对话会话表 (Session)
 create table chat_sessions (
     session_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    title TEXT,             -- 对话标题（前端可以根据第一句话抽取，或显示”与某论文的对话”）
-    mode TEXT DEFAULT 'chat', -- 对话模式: 'chat', 'paper_chat', 'paper_search', etc.
-    article_id INTEGER,     -- 核心区分点：为 NULL 代表”通用不带论文对话”；有值代表”带论文的对话”
+    title TEXT,
+    mode TEXT DEFAULT 'chat',        -- chat/paper_chat/paper_search
+    article_id INTEGER,              -- NULL为通用对话，有值为带论文对话
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
     foreign key (article_id) references papers (article_id) ON DELETE CASCADE
 );
--- 💡 设计说明 (Backend Logic):
--- 针对“带论文”的对话，表中强制【只保留 article_id】而不存储大段的论文纯文本。
--- 后端在组装发送给大模型的上下文时，需自行通过此 article_id 去 papers 表或本地文件系统读取摘要或长文本，
--- 在内存中转换为 prompt 后喂给 LLM，确保数据库绝对轻量级。
 
--- 2. 对话消息明细表 (Messages)
 create table chat_messages (
     message_id INTEGER PRIMARY KEY AUTOINCREMENT,
     session_id INTEGER NOT NULL,
-    role TEXT NOT NULL,     -- 角色标识：通常为 'system', 'user', 'assistant'
-    content TEXT NOT NULL,  -- 具体的对话文本
+    role TEXT NOT NULL,              -- system/user/assistant
+    content TEXT NOT NULL,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
     foreign key (session_id) references chat_sessions (session_id) ON DELETE CASCADE
 );
 
 -- ==========================================
--- 用户操作日志 (User Action / History Logs)
+-- 用户操作日志 (User Action Logs)
 -- ==========================================
 
--- 记录用户的核心操作历史（可用于生成“最近浏览”或统计用户习惯）
 create table user_action_logs (
     log_id INTEGER PRIMARY KEY AUTOINCREMENT,
     article_id INTEGER NOT NULL,
-    action_type TEXT NOT NULL, -- 操作类型常量，建议值：'view_abstract' (看摘要), 'open_url' (点开源网址), 'favorite' (收藏), 'open_pdf' (看PDF)
+    action_type TEXT NOT NULL,       -- view_abstract/open_url/favorite/download
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
     foreign key (article_id) references papers (article_id) ON DELETE CASCADE
 );
@@ -133,12 +165,11 @@ create table user_action_logs (
 -- 每日推荐 (Daily Recommendations)
 -- ==========================================
 
--- 存储外部（如 Google Scholar, arXiv 等）每日推荐的论文流
 create table daily_recommendations (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     article_id INTEGER NOT NULL,
-    source TEXT DEFAULT 'google',      -- 推荐来源（默认 'google'，备用扩展如 'arxiv'）
+    source TEXT DEFAULT 'google',    -- google/arxiv
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(article_id, source), -- 防止同一天同一来源重复推荐相同的论文
+    UNIQUE(article_id, source),
     foreign key (article_id) references papers (article_id) ON DELETE CASCADE
 );

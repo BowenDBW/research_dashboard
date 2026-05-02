@@ -1,4 +1,17 @@
 #!/usr/bin/env python3
+"""
+数据库重置脚本（⚠️ 危险！删除所有数据）
+
+用途：开发时重置数据库到初始状态
+行为：
+  - DROP 所有现有表
+  - 根据 research_dashboard.sql 重建空表结构
+
+警告：运行此脚本会永久删除所有数据！
+       包括用户论文、收藏、对话、历史记录等
+
+适用场景：仅用于开发测试，不要在真实用户环境中运行
+"""
 import os
 import sqlite3
 from pathlib import Path

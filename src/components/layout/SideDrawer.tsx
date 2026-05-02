@@ -34,7 +34,7 @@ import {
   DarkMode as DarkModeIcon,
   LightMode as LightModeIcon,
 } from '@mui/icons-material';
-import { useChatStore } from '../../stores/useChatStore';
+import { useChat } from '../../hooks';
 import { useThemeMode } from '../../app/ThemeProvider';
 import { useTranslation } from 'react-i18next';
 
@@ -42,17 +42,18 @@ interface SideDrawerProps {
   open: boolean;
   onToggle: () => void;
   onOpenSettings: () => void;
+  onOpenManualAdd: () => void;
 }
 
 const DRAWER_WIDTH = 280;
 const DRAWER_WIDTH_COLLAPSED = 72;
 const TRANSITION_DURATION = 200; // ms
 
-export const SideDrawer = ({ open, onToggle, onOpenSettings }: SideDrawerProps) => {
+export const SideDrawer = ({ open, onToggle, onOpenSettings, onOpenManualAdd }: SideDrawerProps) => {
   const navigate = useNavigate();
   const location = useLocation();
   const { t } = useTranslation();
-  const { sessions, currentSessionId, createSession, switchSession, deleteSession, messages } = useChatStore();
+  const { sessions, currentSessionId, createSession, switchSession, deleteSession, messages } = useChat();
   const { mode, toggleMode } = useThemeMode();
   const [menuAnchorEl, setMenuAnchorEl] = useState<null | HTMLElement>(null);
   const [menuSessionId, setMenuSessionId] = useState<string | null>(null);
@@ -155,6 +156,7 @@ export const SideDrawer = ({ open, onToggle, onOpenSettings }: SideDrawerProps) 
                 size="small"
                 startIcon={<PostAddIcon />}
                 fullWidth
+                onClick={onOpenManualAdd}
                 sx={{ mt: 1, opacity: showContent ? 1 : 0, transition: `opacity ${TRANSITION_DURATION}ms ease-in-out` }}
               >
                 {t('sidebar.manualAdd')}
@@ -171,7 +173,7 @@ export const SideDrawer = ({ open, onToggle, onOpenSettings }: SideDrawerProps) 
                 </IconButton>
               </Tooltip>
               <Tooltip title={t('sidebar.manualAdd')} placement="right">
-                <IconButton size="small">
+                <IconButton size="small" onClick={onOpenManualAdd}>
                   <PostAddIcon />
                 </IconButton>
               </Tooltip>

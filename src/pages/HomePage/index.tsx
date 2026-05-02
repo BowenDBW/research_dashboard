@@ -40,7 +40,7 @@ import {
 } from '@mui/icons-material';
 import dayjs from 'dayjs';
 import { useTranslation } from 'react-i18next';
-import { useChatStore } from '../../stores/useChatStore';
+import { useChat } from '../../hooks';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { Article, ChatMode } from '../../types';
 
@@ -129,7 +129,7 @@ const HomePage = () => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const initializedRef = useRef(false);
 
-  const { getCurrentMessages, addMessage, currentSessionId, sessions, createSession, switchSession } = useChatStore();
+  const { getCurrentMessages, addMessage, currentSessionId, sessions, createSession, switchSession } = useChat();
   const { settings, updateSettings } = useSettingsStore();
   const messages = getCurrentMessages();
 

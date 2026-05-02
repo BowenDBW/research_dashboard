@@ -1,13 +1,36 @@
 #!/usr/bin/env python3
 """
-插入测试数据脚本
-用于快速填充数据库以便体验应用功能
+测试数据插入脚本（⚠️ 需配合 refresh_sql.py 使用）
+
+用途：开发测试时快速填充假数据以便体验应用功能
+行为：
+  - 插入假论文、收藏、订阅、对话等数据
+  - 不会删除数据，但会和真实数据混合（所以建议先运行 refresh_sql.py）
+
+建议流程：
+  1. python refresh_sql.py    # 删除所有表重建（危险）
+  2. python import_venues.py  # 导入刊会分区数据（安全）
+  3. python insert_test_data.py  # 插入测试假数据
+
+警告：运行 refresh_sql.py 会删除所有用户数据！
+       insert_test_data.py 本身不删除数据，但与真实数据混用会导致混乱
+
+可重复运行：不建议，会导致数据重复
 """
 import os
 import sqlite3
 import random
 from datetime import datetime, timedelta
 from pathlib import Path
+
+def find_or_create_venue(cursor, name, venue_type='journal'):
+    """查找或创建venue，返回venue_id"""
+    cursor.execute("SELECT venue_id FROM venues WHERE name = ? LIMIT 1", (name,))
+    result = cursor.fetchone()
+    if result:
+        return result[0]
+    cursor.execute("INSERT INTO venues (name, venue_type) VALUES (?, ?)", (name, venue_type))
+    return cursor.lastrowid
 
 def main():
     # 数据库路径
@@ -26,34 +49,35 @@ def main():
 
     # ==========================================
     # 1. Papers (论文数据)
+    # 注意：arxiv文章没有venue_id，venue_id应该是NULL
     # ==========================================
     papers_data = [
-        ("Attention Is All You Need", "The dominant sequence transduction models are based on complex recurrent or convolutional neural networks. We propose a new simple network architecture, the Transformer, based solely on attention mechanisms.", "2017-06-12", "1706.03762", "arXiv", "https://arxiv.org/abs/1706.03762", "https://arxiv.org/pdf/1706.03762"),
-        ("BERT: Pre-training of Deep Bidirectional Transformers", "We introduce a new language representation model called BERT, which stands for Bidirectional Encoder Representations from Transformers.", "2018-10-11", "1810.04805", "arXiv", "https://arxiv.org/abs/1810.04805", "https://arxiv.org/pdf/1810.04805"),
-        ("GPT-4 Technical Report", "We report the development of GPT-4, a large-scale, multimodal model which can accept image and text inputs and produce text outputs.", "2023-03-14", "2303.08774", "arXiv", "https://arxiv.org/abs/2303.08774", "https://arxiv.org/pdf/2303.08774"),
-        ("LoRA: Low-Rank Adaptation of Large Language Models", "We propose Low-Rank Adaptation, or LoRA, which freezes the pre-trained model weights and injects trainable rank decomposition matrices into each layer.", "2021-06-17", "2106.09685", "arXiv", "https://arxiv.org/abs/2106.09685", "https://arxiv.org/pdf/2106.09685"),
-        ("Chain-of-Thought Prompting Elicits Reasoning", "We explore how generating a chain of thought—a series of intermediate reasoning steps—significantly improves the ability of large language models to perform complex reasoning.", "2022-01-28", "2201.11903", "arXiv", "https://arxiv.org/abs/2201.11903", "https://arxiv.org/pdf/2201.11903"),
-        ("Constitutional AI: Harmlessness from AI Feedback", "As AI systems become more capable, we would like to enlist their help to supervise other AI agents. We explore methods for training AI systems to be helpful and harmless.", "2022-12-15", "2212.08073", "arXiv", "https://arxiv.org/abs/2212.08073", "https://arxiv.org/pdf/2212.08073"),
-        ("Vision Transformer: An Image is Worth 16x16 Words", "While the Transformer architecture has become the de-facto standard for NLP tasks, its applications to computer vision remain limited. We show that a pure transformer applied directly to sequences of image patches can perform very well.", "2020-10-22", "2010.11929", "arXiv", "https://arxiv.org/abs/2010.11929", "https://arxiv.org/pdf/2010.11929"),
-        ("DALL-E: Zero-Shot Text-to-Image Generation", "We present DALL-E, a transformer that generates images from text tokens, achieving zero-shot performance competitive with state-of-the-art models.", "2021-02-05", "2102.12092", "arXiv", "https://arxiv.org/abs/2102.12092", "https://arxiv.org/pdf/2102.12092"),
-        ("ResNet: Deep Residual Learning for Image Recognition", "We present a residual learning framework to ease the training of networks that are substantially deeper than those used previously.", "2015-12-10", "1512.03385", "arXiv", "https://arxiv.org/abs/1512.03385", "https://arxiv.org/pdf/1512.03385"),
-        ("Adam: A Method for Stochastic Optimization", "We propose Adam, a method for stochastic optimization that only requires first-order gradients with little memory requirement.", "2014-12-22", "1412.6980", "arXiv", "https://arxiv.org/abs/1412.6980", "https://arxiv.org/pdf/1412.6980"),
-        ("Dropout: A Simple Way to Prevent Neural Networks from Overfitting", "Deep neural nets with a large number of parameters are very powerful machine learning systems. However, overfitting is a serious problem in such networks.", "2014-01-10", "1301.3781", "arXiv", "https://arxiv.org/abs/1301.3781", "https://arxiv.org/pdf/1301.3781"),
-        ("Batch Normalization: Accelerating Deep Network Training", "We present a novel method for training deep neural networks that normalizes the activations of each layer.", "2015-02-11", "1502.03167", "arXiv", "https://arxiv.org/abs/1502.03167", "https://arxiv.org/pdf/1502.03167"),
-        ("YOLO: Real-Time Object Detection", "We present YOLO, a new approach to object detection. Prior work on object detection repurposes classifiers to perform detection.", "2015-06-08", "1506.02640", "arXiv", "https://arxiv.org/abs/1506.02640", "https://arxiv.org/pdf/1506.02640"),
-        ("Generative Adversarial Networks", "We propose a new framework for estimating generative models via an adversarial process, in which we simultaneously train two models.", "2014-06-10", "1406.2661", "arXiv", "https://arxiv.org/abs/1406.2661", "https://arxiv.org/pdf/1406.2661"),
-        ("Variational Autoencoders", "We introduce a stochastic variational inference and learning algorithm that scales to large datasets.", "2013-12-20", "1312.6114", "arXiv", "https://arxiv.org/abs/1312.6114", "https://arxiv.org/pdf/1312.6114"),
-        ("Deep Learning in Neural Networks: An Overview", "This monograph provides an overview of general deep learning methodology including its mathematical foundations.", "2014-04-14", "1404.7828", "arXiv", "https://arxiv.org/abs/1404.7828", "https://arxiv.org/pdf/1404.7828"),
-        ("Sequence to Sequence Learning with Neural Networks", "We present a general end-to-end approach to sequence learning that makes minimal assumptions on the sequence structure.", "2014-09-10", "1409.3215", "arXiv", "https://arxiv.org/abs/1409.3215", "https://arxiv.org/pdf/1409.3215"),
-        ("Neural Machine Translation by Jointly Learning to Align and Translate", "We propose a novel architecture for neural machine translation that learns to align and translate jointly.", "2014-09-01", "1409.0473", "arXiv", "https://arxiv.org/abs/1409.0473", "https://arxiv.org/pdf/1409.0473"),
-        ("Word2Vec: Efficient Estimation of Word Representations", "We propose two novel model architectures for computing continuous vector representations of words from very large data sets.", "2013-01-16", "1301.3781", "arXiv", "https://arxiv.org/abs/1301.3781", "https://arxiv.org/pdf/1301.3781"),
-        ("GloVe: Global Vectors for Word Representation", "We propose a new global log-bilinear regression model that combines the advantages of global matrix factorization and local context window methods.", "2014-02-14", "1402.2252", "arXiv", "https://arxiv.org/abs/1402.2252", "https://arxiv.org/pdf/1402.2252"),
+        ("Attention Is All You Need", "The dominant sequence transduction models are based on complex recurrent or convolutional neural networks. We propose a new simple network architecture, the Transformer, based solely on attention mechanisms.", "2017-06-12", "1706.03762", None, "https://arxiv.org/abs/1706.03762", "https://arxiv.org/pdf/1706.03762"),
+        ("BERT: Pre-training of Deep Bidirectional Transformers", "We introduce a new language representation model called BERT, which stands for Bidirectional Encoder Representations from Transformers.", "2018-10-11", "1810.04805", None, "https://arxiv.org/abs/1810.04805", "https://arxiv.org/pdf/1810.04805"),
+        ("GPT-4 Technical Report", "We report the development of GPT-4, a large-scale, multimodal model which can accept image and text inputs and produce text outputs.", "2023-03-14", "2303.08774", None, "https://arxiv.org/abs/2303.08774", "https://arxiv.org/pdf/2303.08774"),
+        ("LoRA: Low-Rank Adaptation of Large Language Models", "We propose Low-Rank Adaptation, or LoRA, which freezes the pre-trained model weights and injects trainable rank decomposition matrices into each layer.", "2021-06-17", "2106.09685", None, "https://arxiv.org/abs/2106.09685", "https://arxiv.org/pdf/2106.09685"),
+        ("Chain-of-Thought Prompting Elicits Reasoning", "We explore how generating a chain of thought—a series of intermediate reasoning steps—significantly improves the ability of large language models to perform complex reasoning.", "2022-01-28", "2201.11903", None, "https://arxiv.org/abs/2201.11903", "https://arxiv.org/pdf/2201.11903"),
+        ("Constitutional AI: Harmlessness from AI Feedback", "As AI systems become more capable, we would like to enlist their help to supervise other AI agents. We explore methods for training AI systems to be helpful and harmless.", "2022-12-15", "2212.08073", None, "https://arxiv.org/abs/2212.08073", "https://arxiv.org/pdf/2212.08073"),
+        ("Vision Transformer: An Image is Worth 16x16 Words", "While the Transformer architecture has become the de-facto standard for NLP tasks, its applications to computer vision remain limited. We show that a pure transformer applied directly to sequences of image patches can perform very well.", "2020-10-22", "2010.11929", None, "https://arxiv.org/abs/2010.11929", "https://arxiv.org/pdf/2010.11929"),
+        ("DALL-E: Zero-Shot Text-to-Image Generation", "We present DALL-E, a transformer that generates images from text tokens, achieving zero-shot performance competitive with state-of-the-art models.", "2021-02-05", "2102.12092", None, "https://arxiv.org/abs/2102.12092", "https://arxiv.org/pdf/2102.12092"),
+        ("ResNet: Deep Residual Learning for Image Recognition", "We present a residual learning framework to ease the training of networks that are substantially deeper than those used previously.", "2015-12-10", "1512.03385", None, "https://arxiv.org/abs/1512.03385", "https://arxiv.org/pdf/1512.03385"),
+        ("Adam: A Method for Stochastic Optimization", "We propose Adam, a method for stochastic optimization that only requires first-order gradients with little memory requirement.", "2014-12-22", "1412.6980", None, "https://arxiv.org/abs/1412.6980", "https://arxiv.org/pdf/1412.6980"),
+        ("Dropout: A Simple Way to Prevent Neural Networks from Overfitting", "Deep neural nets with a large number of parameters are very powerful machine learning systems. However, overfitting is a serious problem in such networks.", "2014-01-10", "1301.3781", None, "https://arxiv.org/abs/1301.3781", "https://arxiv.org/pdf/1301.3781"),
+        ("Batch Normalization: Accelerating Deep Network Training", "We present a novel method for training deep neural networks that normalizes the activations of each layer.", "2015-02-11", "1502.03167", None, "https://arxiv.org/abs/1502.03167", "https://arxiv.org/pdf/1502.03167"),
+        ("YOLO: Real-Time Object Detection", "We present YOLO, a new approach to object detection. Prior work on object detection repurposes classifiers to perform detection.", "2015-06-08", "1506.02640", None, "https://arxiv.org/abs/1506.02640", "https://arxiv.org/pdf/1506.02640"),
+        ("Generative Adversarial Networks", "We propose a new framework for estimating generative models via an adversarial process, in which we simultaneously train two models.", "2014-06-10", "1406.2661", None, "https://arxiv.org/abs/1406.2661", "https://arxiv.org/pdf/1406.2661"),
+        ("Variational Autoencoders", "We introduce a stochastic variational inference and learning algorithm that scales to large datasets.", "2013-12-20", "1312.6114", None, "https://arxiv.org/abs/1312.6114", "https://arxiv.org/pdf/1312.6114"),
+        ("Deep Learning in Neural Networks: An Overview", "This monograph provides an overview of general deep learning methodology including its mathematical foundations.", "2014-04-14", "1404.7828", None, "https://arxiv.org/abs/1404.7828", "https://arxiv.org/pdf/1404.7828"),
+        ("Sequence to Sequence Learning with Neural Networks", "We present a general end-to-end approach to sequence learning that makes minimal assumptions on the sequence structure.", "2014-09-10", "1409.3215", None, "https://arxiv.org/abs/1409.3215", "https://arxiv.org/pdf/1409.3215"),
+        ("Neural Machine Translation by Jointly Learning to Align and Translate", "We propose a novel architecture for neural machine translation that learns to align and translate jointly.", "2014-09-01", "1409.0473", None, "https://arxiv.org/abs/1409.0473", "https://arxiv.org/pdf/1409.0473"),
+        ("Word2Vec: Efficient Estimation of Word Representations", "We propose two novel model architectures for computing continuous vector representations of words from very large data sets.", "2013-01-16", "1301.3781", None, "https://arxiv.org/abs/1301.3781", "https://arxiv.org/pdf/1301.3781"),
+        ("GloVe: Global Vectors for Word Representation", "We propose a new global log-bilinear regression model that combines the advantages of global matrix factorization and local context window methods.", "2014-02-14", "1402.2252", None, "https://arxiv.org/abs/1402.2252", "https://arxiv.org/pdf/1402.2252"),
     ]
 
     print("[*] 插入论文数据...")
     for paper in papers_data:
         cursor.execute(
-            "INSERT INTO papers (title, abstract, publication_date, preprint_number, publication_venue, publication_link, pdf_link) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO papers (title, abstract, publication_date, preprint_number, venue_id, publication_link, pdf_link) VALUES (?, ?, ?, ?, ?, ?, ?)",
             paper
         )
     print(f"[+] 已插入 {len(papers_data)} 篇论文")
@@ -288,61 +312,6 @@ def main():
     # ==========================================
     # 11. User Action Logs (历史记录)
     # ==========================================
-    actions = ["view_abstract", "open_url", "favorite", "download"]
-
-    # 生成最近30天的历史记录
-    print("[*] 插入用户操作日志...")
-    log_count = 0
-    for i in range(30):
-        date = datetime.now() - timedelta(days=i)
-        date_str = date.strftime("%Y-%m-%d")
-
-        # 每天随机2-8条记录
-        daily_actions = random.randint(2, 8)
-        for _ in range(daily_actions):
-            article_id = random.randint(1, len(papers_data))
-            action = random.choice(actions)
-            hour = random.randint(9, 22)
-            minute = random.randint(0, 59)
-            timestamp = f"{date_str} {hour:02d}:{minute:02d}:00"
-
-            cursor.execute(
-                "INSERT INTO user_action_logs (article_id, action_type, created_at) VALUES (?, ?, ?)",
-                (article_id, action, timestamp)
-            )
-            log_count += 1
-
-    print(f"[+] 已插入 {log_count} 条操作日志（最近30天）")
-
-    # ==========================================
-    # 12. Daily Recommendations
-    # ==========================================
-    print("[*] 插入每日推荐...")
-    rec_count = 0
-
-    # 最近14天的推荐 - 每天的推荐使用不同的文章组合
-    used_combinations = set()
-    for i in range(14):
-        date = datetime.now() - timedelta(days=i)
-        date_str = date.strftime("%Y-%m-%d")
-
-        # 每天推荐3-6篇，确保不重复 (article_id, source) 组合
-        daily_papers = random.sample(range(1, len(papers_data) + 1), random.randint(3, 6))
-        for article_id in daily_papers:
-            # 尝试两个来源，如果已存在则跳过
-            for source in ["google", "arxiv"]:
-                combo = (article_id, source)
-                if combo not in used_combinations:
-                    cursor.execute(
-                        "INSERT INTO daily_recommendations (article_id, source, created_at) VALUES (?, ?, ?)",
-                        (article_id, source, f"{date_str} 08:00:00")
-                    )
-                    used_combinations.add(combo)
-                    rec_count += 1
-                    break  # 只插入一个来源
-
-    print(f"[+] 已插入 {rec_count} 条每日推荐（最近14天）")
-
     conn.commit()
     conn.close()
 
@@ -356,8 +325,6 @@ def main():
     print(f"    - {len(subscribed_categories)} 个订阅分类")
     print(f"    - {len(subscribed_keywords)} 个订阅关键词")
     print(f"    - {len(sessions_data)} 个对话会话")
-    print(f"    - {log_count} 条操作历史")
-    print(f"    - {rec_count} 条每日推荐")
     print("\n[*] 现在可以启动应用体验了！")
 
 if __name__ == "__main__":
