@@ -94,8 +94,9 @@ create table subscribed_keywords (
 -- 1. 对话会话表 (Session)
 create table chat_sessions (
     session_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    title TEXT,             -- 对话标题（前端可以根据第一句话抽取，或显示"与某论文的对话"）
-    article_id INTEGER,     -- 核心区分点：为 NULL 代表“通用不带论文对话”；有值代表“带论文的对话”
+    title TEXT,             -- 对话标题（前端可以根据第一句话抽取，或显示”与某论文的对话”）
+    mode TEXT DEFAULT 'chat', -- 对话模式: 'chat', 'paper_chat', 'paper_search', etc.
+    article_id INTEGER,     -- 核心区分点：为 NULL 代表”通用不带论文对话”；有值代表”带论文的对话”
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
     foreign key (article_id) references papers (article_id) ON DELETE CASCADE

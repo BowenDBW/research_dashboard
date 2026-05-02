@@ -136,10 +136,12 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
 
   testConnection: async (providerId, type) => {
     try {
-      // 真正连通后端，交由 Rust 发起网络请求去验证
+      // Pass current settings to backend for connection test
+      const { settings } = get();
       return await invoke<ConnectionTestResult>('test_connection', {
         providerId,
-        providerType: type
+        providerType: type,
+        settings,
       });
     } catch (err: any) {
       console.error('Backend connection test failed:', err);

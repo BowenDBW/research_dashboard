@@ -75,6 +75,8 @@ import { useFavoriteStore } from '../../stores/useFavoriteStore';
 import { useHistoryStore } from '../../stores/useHistoryStore';
 import { useDailyStore } from '../../stores/useDailyStore';
 import { useSettingsStore } from '../../stores/useSettingsStore';
+import { useStatsStore } from '../../stores/useStatsStore';
+import { useSubscriptionStore } from '../../stores/useSubscriptionStore';
 import { DailyRecommendationDialog } from '../daily/DailyRecommendationDialog';
 import { useChatStore } from '../../stores/useChatStore';
 import { SubscriptionDialog } from '../common/SubscriptionDialog';
@@ -290,11 +292,13 @@ const SortablePanel = ({
 export const RightToolbar = ({ open, onToggle }: RightToolbarProps) => {
   const navigate = useNavigate();
   const { t } = useTranslation();
-  const { items } = useFavoriteStore();
-  const { records, getStatsData } = useHistoryStore();
-  const { getRecentRecommendations } = useDailyStore();
-  const { sessions, messages, switchSession } = useChatStore();
-  const { settings, updateSettings } = useSettingsStore();
+  const { items, navigateToFolder } = useFavoriteStore();
+  const { records, fetchRecords } = useHistoryStore();
+  const { recommendations, fetchRecommendations } = useDailyStore();
+  const { sessions, messages, switchSession, fetchSessions } = useChatStore();
+  const { settings, updateSettings, loadSettings } = useSettingsStore();
+  const { todayStats, fetchTodayStats, statsData, fetchStats } = useStatsStore();
+  const { authors, categories, keywords, loadSubscriptions } = useSubscriptionStore();
   const [subscriptionDialogOpen, setSubscriptionDialogOpen] = useState(false);
   const [expandedPanels, setExpandedPanels] = useState<string[]>([]);
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
@@ -339,8 +343,20 @@ export const RightToolbar = ({ open, onToggle }: RightToolbarProps) => {
     }
   }, [open]);
 
-  const recentRecommendations = getRecentRecommendations();
-  const statsData = getStatsData();
+  // Fetch data on mount
+  useEffect(() => {
+    // Initialize data fetching for sidebar panels
+    loadSettings();
+    navigateToFolder(null); // Load favorites root folder
+    fetchRecords();
+    fetchRecommendations(1, 10); // Fetch daily recommendations
+    fetchSessions();
+    fetchTodayStats();
+    loadSubscriptions();
+  }, []);
+
+  // Get recent recommendations from state (first 5)
+  const recentRecommendations = recommendations.slice(0, 5);
 
   const handleCrawlIntervalChange = (_: Event, value: number | number[]) => {
     updateSettings({ crawlIntervalHours: value as number });
@@ -512,8 +528,7 @@ export const RightToolbar = ({ open, onToggle }: RightToolbarProps) => {
                 {t('rightToolbar.totalArticles')}:
               </Typography>
               <Typography variant="body2">
-                {/* TODO: 从数据库统计文章总数 */}
-                1,234 {t('rightToolbar.articlesCount')}
+                {todayStats?.totalPapers?.toLocaleString() || 0} {t('rightToolbar.articlesCount')}
               </Typography>
             </Box>
 
@@ -735,7 +750,7 @@ export const RightToolbar = ({ open, onToggle }: RightToolbarProps) => {
         return (
           <>
             <Box sx={{ display: 'flex', justifyContent: 'center' }}>
-              <MonthlyHeatmap data={statsData.heatmapData} size="small" />
+              <MonthlyHeatmap data={statsData?.heatmapData || []} size="small" />
             </Box>
             <Box sx={{ display: 'flex', justifyContent: 'space-around', mt: 1.5, pt: 1.5, borderTop: 1, borderColor: 'divider' }}>
               <Box sx={{ textAlign: 'center' }}>
@@ -744,7 +759,7 @@ export const RightToolbar = ({ open, onToggle }: RightToolbarProps) => {
                   <Typography variant="caption" color="text.secondary">{t('rightToolbar.today')}</Typography>
                 </Box>
                 <Typography variant="h6" sx={{ fontWeight: 600, color: '#2196f3' }}>
-                  {statsData.readingStats.todayCount}
+                  {todayStats?.todayCount || statsData?.readingStats?.todayCount || 0}
                 </Typography>
               </Box>
               <Box sx={{ textAlign: 'center' }}>
@@ -753,7 +768,7 @@ export const RightToolbar = ({ open, onToggle }: RightToolbarProps) => {
                   <Typography variant="caption" color="text.secondary">{t('rightToolbar.thisMonth')}</Typography>
                 </Box>
                 <Typography variant="h6" sx={{ fontWeight: 600, color: '#4CAF50' }}>
-                  {statsData.readingStats.monthCount}
+                  {statsData?.readingStats?.monthCount || 0}
                 </Typography>
               </Box>
             </Box>
@@ -766,13 +781,21 @@ export const RightToolbar = ({ open, onToggle }: RightToolbarProps) => {
             <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
               {t('rightToolbar.subscriptionHint')}
             </Typography>
-            <Box sx={{ display: 'flex', gap: 1 }}>
-              <Chip label="cs.LG" size="small" />
-              <Chip label="transformer" size="small" />
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+              {categories.slice(0, 3).map((cat) => (
+                <Chip key={cat.id} label={cat.category} size="small" />
+              ))}
+              {keywords.slice(0, 2).map((kw) => (
+                <Chip key={kw.id} label={kw.keyword} size="small" />
+              ))}
             </Box>
-            <Box sx={{ mt: 1 }}>
-              <Chip label="Yann LeCun" size="small" variant="outlined" />
-            </Box>
+            {authors.length > 0 && (
+              <Box sx={{ mt: 1, display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                {authors.slice(0, 2).map((author) => (
+                  <Chip key={author.id} label={author.authorName} size="small" variant="outlined" />
+                ))}
+              </Box>
+            )}
             <IconButton
               onClick={() => setSubscriptionDialogOpen(true)}
               sx={{ mt: 1 }}

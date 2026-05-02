@@ -1,67 +1,99 @@
 import { create } from 'zustand';
+import { invoke } from '@tauri-apps/api/core';
 import { FavoriteItem, FolderNode, FavoriteClipboard } from '../types';
+import { Article } from '../types/article';
 
-// Mock data for prototype
-const mockFavoriteItems: FavoriteItem[] = [
-  {
-    id: 'folder-1',
+// Backend response types (match Rust models)
+interface BackendFavoriteFolder {
+  folder_id: number;
+  parent_id: number | null;
+  folder_name: string;
+  created_at: string | null;
+}
+
+interface BackendFavoritePaper {
+  article_id: number;
+  folder_id: number | null;
+  created_at: string | null;
+  article: BackendPaper | null;
+}
+
+interface BackendPaper {
+  article_id: number;
+  title: string;
+  abstract_text: string | null;
+  publication_date: string | null;
+  preprint_number: string | null;
+  publication_venue: string | null;
+  publication_link: string | null;
+  pdf_link: string | null;
+  pdf_path: string | null;
+  authors: string[] | null;
+  categories: string[] | null;
+  is_favorited: boolean | null;
+}
+
+interface BackendBreadcrumbItem {
+  id: number | null;
+  name: string;
+}
+
+interface BackendFolderContents {
+  folders: BackendFavoriteFolder[];
+  papers: BackendFavoritePaper[];
+  path: BackendBreadcrumbItem[];
+}
+
+// Convert backend paper to frontend Article
+function paperToArticle(paper: BackendPaper): Article {
+  return {
+    id: String(paper.article_id),
+    title: paper.title,
+    authors: paper.authors || [],
+    source: paper.publication_venue || 'arXiv',
+    sourceType: paper.publication_venue?.toLowerCase() || 'arxiv',
+    publishDate: paper.publication_date || '',
+    abstract: paper.abstract_text || '',
+    url: paper.publication_link || '',
+    pdfUrl: paper.pdf_link || '',
+    domains: paper.categories || [],
+    isFavorited: true,
+    metadata: {},
+  };
+}
+
+// Convert backend folder to frontend FavoriteItem
+function folderToItem(folder: BackendFavoriteFolder): FavoriteItem {
+  return {
+    id: String(folder.folder_id),
     type: 'folder',
-    name: 'Machine Learning',
-    parentId: null,
-    createdAt: '2024-01-01',
-    children: [
-      {
-        id: 'file-1',
-        type: 'file',
-        name: 'Attention Is All You Need',
-        parentId: 'folder-1',
-        createdAt: '2024-01-02',
-        article: {
-          id: '1',
-          title: 'Attention Is All You Need',
-          authors: ['Ashish Vaswani', 'Noam Shazeer'],
-          source: 'arXiv',
-          sourceType: 'arxiv',
-          publishDate: '2023-06-12',
-          abstract: 'We propose the Transformer architecture...',
-          url: 'https://arxiv.org/abs/1706.03762',
-          pdfUrl: 'https://arxiv.org/pdf/1706.03762.pdf',
-          domains: ['cs.LG', 'cs.AI'],
-          isFavorited: true,
-          metadata: {},
-        },
-      },
-    ],
-  },
-  {
-    id: 'folder-2',
-    type: 'folder',
-    name: 'NLP Papers',
-    parentId: null,
-    createdAt: '2024-01-05',
-  },
-  {
-    id: 'file-2',
+    name: folder.folder_name,
+    parentId: folder.parent_id ? String(folder.parent_id) : null,
+    createdAt: folder.created_at || new Date().toISOString(),
+    children: [],
+  };
+}
+
+// Convert backend favorite paper to frontend FavoriteItem
+function paperToItem(fav: BackendFavoritePaper): FavoriteItem {
+  return {
+    id: String(fav.article_id),
     type: 'file',
-    name: 'BERT: Pre-training of Deep Bidirectional Transformers',
+    name: fav.article?.title || 'Unknown',
+    article: fav.article ? paperToArticle(fav.article) : undefined,
+    parentId: fav.folder_id ? String(fav.folder_id) : null,
+    createdAt: fav.created_at || new Date().toISOString(),
+  };
+}
+
+// Convert backend breadcrumb to frontend FolderNode
+function breadcrumbToNode(item: BackendBreadcrumbItem): FolderNode {
+  return {
+    id: item.id ? String(item.id) : null,
+    name: item.name,
     parentId: null,
-    createdAt: '2024-01-10',
-    article: {
-      id: '2',
-      title: 'BERT: Pre-training of Deep Bidirectional Transformers',
-      authors: ['Jacob Devlin', 'Ming-Wei Chang'],
-      source: 'arXiv',
-      sourceType: 'arxiv',
-      publishDate: '2023-05-20',
-      abstract: 'We introduce BERT...',
-      url: 'https://arxiv.org/abs/1810.04805',
-      pdfUrl: 'https://arxiv.org/pdf/1810.04805.pdf',
-      domains: ['cs.CL', 'cs.AI'],
-      isFavorited: true,
-      metadata: {},
-    },
-  },
-];
+  };
+}
 
 interface FavoriteStore {
   currentFolderId: string | null;
@@ -69,128 +101,201 @@ interface FavoriteStore {
   items: FavoriteItem[];
   clipboard: FavoriteClipboard | null;
   loading: boolean;
+
+  // Navigation
   navigateToFolder: (folderId: string | null) => Promise<void>;
+
+  // Folder operations
   createFolder: (name: string, parentId?: string | null) => Promise<string>;
   renameFolder: (folderId: string, newName: string) => Promise<void>;
   deleteFolder: (folderId: string) => Promise<void>;
   cutFolder: (folderId: string) => void;
   pasteFolder: (targetParentId: string | null) => Promise<void>;
-  addFavorite: (article: any, folderId: string | null) => Promise<void>;
+
+  // Paper operations
+  addFavorite: (article: Article, folderId?: string | null) => Promise<void>;
   removeFavorite: (articleId: string) => Promise<void>;
+  movePaper: (articleId: string, newFolderId: string | null) => Promise<void>;
+
+  // Get folder path
+  getFolderPath: (folderId: string | null) => Promise<FolderNode[]>;
 }
 
 export const useFavoriteStore = create<FavoriteStore>((set, get) => ({
   currentFolderId: null,
   folderPath: [{ id: null, name: '根目录', parentId: null }],
-  items: mockFavoriteItems.filter((item) => item.parentId === null),
+  items: [],
   clipboard: null,
   loading: false,
 
-  navigateToFolder: async (folderId) => {
+  navigateToFolder: async (folderId: string | null) => {
     set({ loading: true, currentFolderId: folderId });
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    try {
+      const response = await invoke<BackendFolderContents>('favorites_contents', {
+        folderId: folderId ? parseInt(folderId) : null,
+      });
 
-    const allItems = mockFavoriteItems;
-    let items: FavoriteItem[];
-    let folderPath: FolderNode[];
+      const folders = response.folders.map(folderToItem);
+      const papers = response.papers.map(paperToItem);
+      const path = response.path.map(breadcrumbToNode);
 
-    if (folderId === null) {
-      items = allItems.filter((item) => item.parentId === null);
-      folderPath = [{ id: null, name: '根目录', parentId: null }];
-    } else {
-      const folder = allItems.find((item) => item.id === folderId);
-      if (folder && folder.children) {
-        items = folder.children;
-      } else {
-        items = allItems.filter((item) => item.parentId === folderId);
-      }
-
-      // Build path
-      folderPath = [{ id: null, name: '根目录', parentId: null }];
-      if (folder) {
-        folderPath.push({ id: folder.id, name: folder.name, parentId: folder.parentId });
-      }
+      set({
+        items: [...folders, ...papers],
+        folderPath: path,
+        loading: false,
+      });
+    } catch (error) {
+      console.error('Failed to navigate to folder:', error);
+      set({ items: [], loading: false });
     }
-
-    set({ items, folderPath, loading: false });
   },
 
-  createFolder: async (name, parentId = null) => {
-    const { currentFolderId } = get();
-    const targetParentId = parentId !== null ? parentId : currentFolderId;
-    const newFolder: FavoriteItem = {
-      id: `folder-${Date.now()}`,
-      type: 'folder',
-      name,
-      parentId: targetParentId,
-      createdAt: new Date().toISOString(),
-    };
-    set((state) => ({ items: [...state.items, newFolder] }));
-    return newFolder.id;
+  createFolder: async (name: string, parentId?: string | null) => {
+    try {
+      const { currentFolderId } = get();
+      const targetParentId = parentId !== undefined ? parentId : currentFolderId;
+
+      const response = await invoke<BackendFavoriteFolder>('favorites_create_folder', {
+        name,
+        parentId: targetParentId ? parseInt(targetParentId) : null,
+      });
+
+      const newFolder = folderToItem(response);
+      set((state) => ({ items: [...state.items, newFolder] }));
+
+      return newFolder.id;
+    } catch (error) {
+      console.error('Failed to create folder:', error);
+      throw error;
+    }
   },
 
-  renameFolder: async (folderId, newName) => {
-    set((state) => ({
-      items: state.items.map((item) =>
-        item.id === folderId ? { ...item, name: newName } : item
-      ),
-    }));
+  renameFolder: async (folderId: string, newName: string) => {
+    try {
+      await invoke('favorites_rename_folder', {
+        folderId: parseInt(folderId),
+        name: newName,
+      });
+
+      set((state) => ({
+        items: state.items.map((item) =>
+          item.id === folderId ? { ...item, name: newName } : item
+        ),
+      }));
+    } catch (error) {
+      console.error('Failed to rename folder:', error);
+      throw error;
+    }
   },
 
-  deleteFolder: async (folderId) => {
-    set((state) => ({
-      items: state.items.filter((item) => item.id !== folderId),
-    }));
+  deleteFolder: async (folderId: string) => {
+    try {
+      await invoke('favorites_delete_folder', {
+        folderId: parseInt(folderId),
+      });
+
+      set((state) => ({
+        items: state.items.filter((item) => item.id !== folderId),
+      }));
+    } catch (error) {
+      console.error('Failed to delete folder:', error);
+      throw error;
+    }
   },
 
-  cutFolder: (folderId) => {
+  cutFolder: (folderId: string) => {
     set({ clipboard: { type: 'cut', folderId } });
   },
 
-  pasteFolder: async (targetParentId) => {
+  pasteFolder: async (targetParentId: string | null) => {
     const { clipboard } = get();
     if (!clipboard) return;
 
-    set((state) => ({
-      items: state.items.map((item) =>
-        item.id === clipboard.folderId ? { ...item, parentId: targetParentId } : item
-      ),
-      clipboard: null,
-    }));
-  },
+    try {
+      await invoke('favorites_move_folder', {
+        folderId: parseInt(clipboard.folderId),
+        newParentId: targetParentId ? parseInt(targetParentId) : null,
+      });
 
-  addFavorite: async (article, folderId) => {
-    const newFavorite: FavoriteItem = {
-      id: `file-${Date.now()}`,
-      type: 'file',
-      name: article.title,
-      article,
-      parentId: folderId,
-      createdAt: new Date().toISOString(),
-    };
+      // Refresh current folder contents
+      const { currentFolderId } = get();
+      await get().navigateToFolder(currentFolderId);
 
-    if (folderId === null) {
-      // 添加到根目录
-      set((state) => ({ items: [...state.items, newFavorite] }));
-    } else {
-      // 添加到指定文件夹
-      set((state) => ({
-        items: state.items.map((item) => {
-          if (item.id === folderId && item.type === 'folder') {
-            return {
-              ...item,
-              children: [...(item.children || []), newFavorite],
-            };
-          }
-          return item;
-        }),
-      }));
+      set({ clipboard: null });
+    } catch (error) {
+      console.error('Failed to paste folder:', error);
+      throw error;
     }
   },
 
-  removeFavorite: async (articleId) => {
-    set((state) => ({
-      items: state.items.filter((item) => item.id !== articleId),
-    }));
+  addFavorite: async (article: Article, folderId?: string | null) => {
+    try {
+      const { currentFolderId } = get();
+      const targetFolderId = folderId !== undefined ? folderId : currentFolderId;
+
+      await invoke('favorites_add', {
+        articleId: parseInt(article.id),
+        folderId: targetFolderId ? parseInt(targetFolderId) : null,
+      });
+
+      // Add to local state
+      const newItem: FavoriteItem = {
+        id: article.id,
+        type: 'file',
+        name: article.title,
+        article,
+        parentId: targetFolderId,
+        createdAt: new Date().toISOString(),
+      };
+
+      set((state) => ({ items: [...state.items, newItem] }));
+    } catch (error) {
+      console.error('Failed to add favorite:', error);
+      throw error;
+    }
+  },
+
+  removeFavorite: async (articleId: string) => {
+    try {
+      await invoke('favorites_remove', {
+        articleId: parseInt(articleId),
+      });
+
+      set((state) => ({
+        items: state.items.filter((item) => item.id !== articleId),
+      }));
+    } catch (error) {
+      console.error('Failed to remove favorite:', error);
+      throw error;
+    }
+  },
+
+  movePaper: async (articleId: string, newFolderId: string | null) => {
+    try {
+      await invoke('favorites_move_paper', {
+        articleId: parseInt(articleId),
+        newFolderId: newFolderId ? parseInt(newFolderId) : null,
+      });
+
+      // Refresh current folder contents
+      const { currentFolderId } = get();
+      await get().navigateToFolder(currentFolderId);
+    } catch (error) {
+      console.error('Failed to move paper:', error);
+      throw error;
+    }
+  },
+
+  getFolderPath: async (folderId: string | null) => {
+    try {
+      const response = await invoke<BackendBreadcrumbItem[]>('favorites_path', {
+        folderId: folderId ? parseInt(folderId) : null,
+      });
+
+      return response.map(breadcrumbToNode);
+    } catch (error) {
+      console.error('Failed to get folder path:', error);
+      return [{ id: null, name: '根目录', parentId: null }];
+    }
   },
 }));

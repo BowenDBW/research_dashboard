@@ -1,157 +1,223 @@
 import { create } from 'zustand';
+import { invoke } from '@tauri-apps/api/core';
 import { ChatSession, ChatMessage, ChatMode } from '../types';
 
-// Generate mock chat sessions with messages
-const generateMockSessions = (): { sessions: ChatSession[]; messages: Record<string, ChatMessage[]> } => {
-  const now = Date.now();
-  const mockSessions: ChatSession[] = [
-    {
-      id: 'session-1',
-      title: '关于 Transformer 架构的讨论',
-      mode: 'chat',
-      createdAt: new Date(now).toISOString(),
-      updatedAt: new Date(now).toISOString(),
-    },
-    {
-      id: 'session-2',
-      title: '搜索注意力机制相关论文',
-      mode: 'paper_search',
-      createdAt: new Date(now - 86400000).toISOString(),
-      updatedAt: new Date(now - 86400000).toISOString(),
-    },
-    {
-      id: 'session-3',
-      title: 'Attention Is All You Need 总结',
-      mode: 'chapter_summary',
-      articleId: '1',
-      articleTitle: 'Attention Is All You Need',
-      createdAt: new Date(now - 172800000).toISOString(),
-      updatedAt: new Date(now - 172800000).toISOString(),
-    },
-    {
-      id: 'session-4',
-      title: 'BERT 模型原理解析',
-      mode: 'chat',
-      createdAt: new Date(now - 259200000).toISOString(),
-      updatedAt: new Date(now - 259200000).toISOString(),
-    },
-    {
-      id: 'session-5',
-      title: '搜索 GPT 系列论文',
-      mode: 'paper_search',
-      createdAt: new Date(now - 345600000).toISOString(),
-      updatedAt: new Date(now - 345600000).toISOString(),
-    },
-  ];
+// Backend response types (match Rust models)
+interface BackendChatSession {
+  session_id: number;
+  title: string | null;
+  mode: string;
+  article_id: number | null;
+  created_at: string | null;
+  updated_at: string | null;
+  message_count: number | null;
+}
 
-  const mockMessages: Record<string, ChatMessage[]> = {
-    'session-1': [
-      { id: 'm1-1', sessionId: 'session-1', role: 'user', content: '请解释一下 Transformer 架构的核心思想', timestamp: new Date(now).toISOString() },
-      { id: 'm1-2', sessionId: 'session-1', role: 'assistant', content: 'Transformer 的核心思想是自注意力机制（Self-Attention）...', timestamp: new Date(now).toISOString() },
-      { id: 'm1-3', sessionId: 'session-1', role: 'user', content: '自注意力机制是如何计算的？', timestamp: new Date(now).toISOString() },
-      { id: 'm1-4', sessionId: 'session-1', role: 'assistant', content: '自注意力机制通过 Query、Key、Value 三个矩阵来计算...', timestamp: new Date(now).toISOString() },
-    ],
-    'session-2': [
-      { id: 'm2-1', sessionId: 'session-2', role: 'user', content: '搜索关于注意力机制的最新论文', timestamp: new Date(now - 86400000).toISOString() },
-      { id: 'm2-2', sessionId: 'session-2', role: 'assistant', content: '找到了以下相关论文：\n1. Efficient Attention...\n2. Linear Attention...', timestamp: new Date(now - 86400000).toISOString() },
-    ],
-    'session-3': [
-      { id: 'm3-1', sessionId: 'session-3', role: 'user', content: '请总结这篇论文的主要贡献', timestamp: new Date(now - 172800000).toISOString() },
-      { id: 'm3-2', sessionId: 'session-3', role: 'assistant', content: '这篇论文的主要贡献包括：\n1. 提出了 Transformer 架构...\n2. 引入了多头注意力机制...', timestamp: new Date(now - 172800000).toISOString() },
-    ],
-    'session-4': [
-      { id: 'm4-1', sessionId: 'session-4', role: 'user', content: 'BERT 和 GPT 有什么区别？', timestamp: new Date(now - 259200000).toISOString() },
-      { id: 'm4-2', sessionId: 'session-4', role: 'assistant', content: 'BERT 使用双向编码器，适合理解任务；GPT 使用单向解码器，适合生成任务...', timestamp: new Date(now - 259200000).toISOString() },
-    ],
-    'session-5': [
-      { id: 'm5-1', sessionId: 'session-5', role: 'user', content: '搜索 GPT-4 相关论文', timestamp: new Date(now - 345600000).toISOString() },
-      { id: 'm5-2', sessionId: 'session-5', role: 'assistant', content: '找到以下论文：\n1. GPT-4 Technical Report...', timestamp: new Date(now - 345600000).toISOString() },
-    ],
+interface BackendChatMessage {
+  message_id: number;
+  session_id: number;
+  role: string;
+  content: string;
+  created_at: string | null;
+}
+
+interface CreateSessionRequest {
+  mode: string;
+  article_id: number | null;
+  title: string | null;
+}
+
+// Convert backend session to frontend ChatSession
+function sessionToFrontend(session: BackendChatSession): ChatSession {
+  return {
+    id: String(session.session_id),
+    title: session.title || '新对话',
+    mode: session.mode as ChatMode,
+    createdAt: session.created_at || new Date().toISOString(),
+    updatedAt: session.updated_at || new Date().toISOString(),
+    articleId: session.article_id ? String(session.article_id) : undefined,
+    articleTitle: undefined, // Backend doesn't store article title, need separate lookup if needed
   };
+}
 
-  return { sessions: mockSessions, messages: mockMessages };
-};
-
-const mockData = generateMockSessions();
+// Convert backend message to frontend ChatMessage
+function messageToFrontend(msg: BackendChatMessage): ChatMessage {
+  return {
+    id: String(msg.message_id),
+    sessionId: String(msg.session_id),
+    role: msg.role as 'user' | 'assistant',
+    content: msg.content,
+    timestamp: msg.created_at || new Date().toISOString(),
+  };
+}
 
 interface ChatStore {
   sessions: ChatSession[];
   currentSessionId: string | null;
   messages: Record<string, ChatMessage[]>;
-  createSession: (mode?: ChatMode, articleInfo?: { articleId: string; articleTitle: string }) => string;
-  switchSession: (id: string) => void;
-  deleteSession: (id: string) => void;
-  addMessage: (sessionId: string, msg: ChatMessage) => void;
-  appendStreamToken: (sessionId: string, token: string) => void;
+  loading: boolean;
+  messagesLoading: boolean;
+
+  // Session management
+  fetchSessions: (mode?: ChatMode, limit?: number) => Promise<void>;
+  createSession: (mode?: ChatMode, articleInfo?: { articleId: string; articleTitle: string }) => Promise<string>;
+  switchSession: (id: string) => Promise<void>;
+  deleteSession: (id: string) => Promise<void>;
+
+  // Message management
+  fetchMessages: (sessionId: string) => Promise<void>;
+  addMessage: (sessionId: string, content: string) => Promise<void>;
   getCurrentMessages: () => ChatMessage[];
+
+  // Stream handling for assistant response
+  appendStreamToken: (sessionId: string, token: string) => void;
+  startAssistantMessage: (sessionId: string) => void;
+  finalizeAssistantMessage: (sessionId: string) => void;
 }
 
 export const useChatStore = create<ChatStore>((set, get) => ({
-  sessions: mockData.sessions,
+  sessions: [],
   currentSessionId: null,
-  messages: mockData.messages,
+  messages: {},
+  loading: false,
+  messagesLoading: false,
 
-  createSession: (mode = 'chat', articleInfo?: { articleId: string; articleTitle: string }) => {
-    const id = `session-${Date.now()}`;
-    const newSession: ChatSession = {
-      id,
-      title: articleInfo ? `总结: ${articleInfo.articleTitle}` : '新对话',
-      mode,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      articleId: articleInfo?.articleId,
-      articleTitle: articleInfo?.articleTitle,
+  fetchSessions: async (mode?: ChatMode, limit = 20) => {
+    set({ loading: true });
+    try {
+      const response = await invoke<BackendChatSession[]>('chat_get_sessions', {
+        mode: mode || null,
+        limit,
+      });
+
+      const sessions = response.map(sessionToFrontend);
+
+      set({ sessions, loading: false });
+    } catch (error) {
+      console.error('Failed to fetch sessions:', error);
+      set({ sessions: [], loading: false });
+    }
+  },
+
+  createSession: async (mode = 'chat', articleInfo?: { articleId: string; articleTitle: string }) => {
+    try {
+      const request: CreateSessionRequest = {
+        mode,
+        article_id: articleInfo ? parseInt(articleInfo.articleId) : null,
+        title: articleInfo ? `总结: ${articleInfo.articleTitle}` : null,
+      };
+
+      const response = await invoke<BackendChatSession>('chat_create_session', { req: request });
+
+      const newSession = sessionToFrontend(response);
+      const sessionId = newSession.id;
+
+      set((state) => ({
+        sessions: [newSession, ...state.sessions],
+        currentSessionId: sessionId,
+        messages: { ...state.messages, [sessionId]: [] },
+      }));
+
+      return sessionId;
+    } catch (error) {
+      console.error('Failed to create session:', error);
+      throw error;
+    }
+  },
+
+  switchSession: async (id: string) => {
+    set({ currentSessionId: id, messagesLoading: true });
+    try {
+      const response = await invoke<BackendChatMessage[]>('chat_get_messages', {
+        sessionId: parseInt(id),
+      });
+
+      const msgs = response.map(messageToFrontend);
+
+      set((state) => ({
+        messages: { ...state.messages, [id]: msgs },
+        messagesLoading: false,
+      }));
+    } catch (error) {
+      console.error('Failed to fetch messages:', error);
+      set((state) => ({
+        messages: { ...state.messages, [id]: [] },
+        messagesLoading: false,
+      }));
+    }
+  },
+
+  deleteSession: async (id: string) => {
+    try {
+      await invoke('chat_delete_session', { sessionId: parseInt(id) });
+
+      set((state) => {
+        const newSessions = state.sessions.filter((s) => s.id !== id);
+        const newMessages = { ...state.messages };
+        delete newMessages[id];
+
+        let newCurrentId = state.currentSessionId;
+        if (state.currentSessionId === id) {
+          newCurrentId = newSessions.length > 0 ? newSessions[0].id : null;
+        }
+
+        return {
+          sessions: newSessions,
+          messages: newMessages,
+          currentSessionId: newCurrentId,
+        };
+      });
+    } catch (error) {
+      console.error('Failed to delete session:', error);
+      throw error;
+    }
+  },
+
+  fetchMessages: async (sessionId: string) => {
+    set({ messagesLoading: true });
+    try {
+      const response = await invoke<BackendChatMessage[]>('chat_get_messages', {
+        sessionId: parseInt(sessionId),
+      });
+
+      const msgs = response.map(messageToFrontend);
+
+      set((state) => ({
+        messages: { ...state.messages, [sessionId]: msgs },
+        messagesLoading: false,
+      }));
+    } catch (error) {
+      console.error('Failed to fetch messages:', error);
+      set((state) => ({
+        messages: { ...state.messages, [sessionId]: [] },
+        messagesLoading: false,
+      }));
+    }
+  },
+
+  addMessage: async (sessionId: string, content: string) => {
+    // Add user message to state immediately
+    const userMsg: ChatMessage = {
+      id: `temp-user-${Date.now()}`,
+      sessionId,
+      role: 'user',
+      content,
+      timestamp: new Date().toISOString(),
     };
+
     set((state) => ({
-      sessions: [...state.sessions, newSession],
-      currentSessionId: id,
-      messages: { ...state.messages, [id]: [] },
+      messages: {
+        ...state.messages,
+        [sessionId]: [...(state.messages[sessionId] || []), userMsg],
+      },
     }));
-    return id;
+
+    // Note: The actual message sending with AI response should be handled
+    // in a separate component that deals with SSE streaming
+    // This function just adds the user message to local state
   },
 
-  switchSession: (id) => {
-    set({ currentSessionId: id });
-  },
-
-  deleteSession: (id) => {
-    set((state) => {
-      const newSessions = state.sessions.filter((s) => s.id !== id);
-      const newMessages = { ...state.messages };
-      delete newMessages[id];
-
-      // If deleting current session, switch to another one
-      let newCurrentId = state.currentSessionId;
-      if (state.currentSessionId === id) {
-        newCurrentId = newSessions.length > 0 ? newSessions[0].id : null;
-      }
-
-      return {
-        sessions: newSessions,
-        messages: newMessages,
-        currentSessionId: newCurrentId,
-      };
-    });
-  },
-
-  addMessage: (sessionId, msg) => {
-    set((state) => {
-      // Update session's updatedAt timestamp
-      const updatedSessions = state.sessions.map(s =>
-        s.id === sessionId ? { ...s, updatedAt: new Date().toISOString() } : s
-      );
-
-      return {
-        sessions: updatedSessions,
-        messages: {
-          ...state.messages,
-          [sessionId]: [...(state.messages[sessionId] || []), msg],
-        },
-      };
-    });
-  },
-
-  appendStreamToken: (sessionId, token) => {
+  appendStreamToken: (sessionId: string, token: string) => {
     set((state) => {
       const msgs = state.messages[sessionId] || [];
       const lastMsg = msgs[msgs.length - 1];
@@ -168,6 +234,28 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       }
       return state;
     });
+  },
+
+  startAssistantMessage: (sessionId: string) => {
+    const assistantMsg: ChatMessage = {
+      id: `temp-assistant-${Date.now()}`,
+      sessionId,
+      role: 'assistant',
+      content: '',
+      timestamp: new Date().toISOString(),
+    };
+
+    set((state) => ({
+      messages: {
+        ...state.messages,
+        [sessionId]: [...(state.messages[sessionId] || []), assistantMsg],
+      },
+    }));
+  },
+
+  finalizeAssistantMessage: (sessionId: string) => {
+    // This can be used to finalize the assistant message after streaming ends
+    // For now, the message is already in state from startAssistantMessage and appendStreamToken
   },
 
   getCurrentMessages: () => {

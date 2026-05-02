@@ -1,93 +1,58 @@
 import { create } from 'zustand';
+import { invoke } from '@tauri-apps/api/core';
 import { Article, ArticleFilters, PaginatedArticles } from '../types';
 
-// Mock data for prototype
-const mockArticles: Article[] = [
-  {
-    id: '1',
-    title: 'Attention Is All You Need',
-    authors: ['Ashish Vaswani', 'Noam Shazeer', 'Niki Parmar'],
-    source: 'arXiv',
-    sourceType: 'arxiv',
-    publishDate: '2023-06-12',
-    abstract: 'The dominant sequence transduction models are based on complex recurrent or convolutional neural networks that include an encoder and a decoder. The best performing models also connect the encoder and decoder through an attention mechanism. We propose a new simple network architecture, the Transformer, based solely on attention mechanisms, dispensing with recurrence and convolutions entirely.',
-    url: 'https://arxiv.org/abs/1706.03762',
-    pdfUrl: 'https://arxiv.org/pdf/1706.03762.pdf',
-    domains: ['cs.LG', 'cs.AI'],
-    isFavorited: false,
+// Backend response types (match Rust models)
+interface BackendPaper {
+  article_id: number;
+  title: string;
+  abstract_text: string | null;
+  publication_date: string | null;
+  preprint_number: string | null;
+  publication_venue: string | null;
+  publication_link: string | null;
+  pdf_link: string | null;
+  pdf_path: string | null;
+  authors: string[] | null;
+  categories: string[] | null;
+  is_favorited: boolean | null;
+}
+
+interface BackendPaperListResponse {
+  articles: BackendPaper[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+interface BackendPaperQueryParams {
+  page: number;
+  page_size: number;
+  query: string | null;
+  start_date: string | null;
+  end_date: string | null;
+  sources: string[] | null;
+  domains: string[] | null;
+  subscribed_only: boolean;
+}
+
+// Convert backend paper to frontend Article
+function paperToArticle(paper: BackendPaper): Article {
+  return {
+    id: String(paper.article_id),
+    title: paper.title,
+    authors: paper.authors || [],
+    source: paper.publication_venue || 'arXiv',
+    sourceType: paper.publication_venue?.toLowerCase() || 'arxiv',
+    publishDate: paper.publication_date || '',
+    abstract: paper.abstract_text || '',
+    url: paper.publication_link || '',
+    pdfUrl: paper.pdf_link || '',
+    domains: paper.categories || [],
+    isFavorited: paper.is_favorited || false,
     metadata: {},
-  },
-  {
-    id: '2',
-    title: 'BERT: Pre-training of Deep Bidirectional Transformers',
-    authors: ['Jacob Devlin', 'Ming-Wei Chang', 'Kenton Lee'],
-    source: 'arXiv',
-    sourceType: 'arxiv',
-    publishDate: '2023-05-20',
-    abstract: 'We introduce a new language representation model called BERT, which stands for Bidirectional Encoder Representations from Transformers. Unlike recent language representation models, BERT is designed to pre-train deep bidirectional representations by jointly conditioning on both left and right context in all layers.',
-    url: 'https://arxiv.org/abs/1810.04805',
-    pdfUrl: 'https://arxiv.org/pdf/1810.04805.pdf',
-    domains: ['cs.CL', 'cs.AI'],
-    isFavorited: true,
-    metadata: {},
-  },
-  {
-    id: '3',
-    title: 'GPT-4 Technical Report',
-    authors: ['OpenAI'],
-    source: 'arXiv',
-    sourceType: 'arxiv',
-    publishDate: '2023-04-15',
-    abstract: 'We report the development of GPT-4, a large-scale, multimodal model which can accept image and text inputs and produce text outputs. While less capable than humans in many real-world scenarios, GPT-4 exhibits human-level performance on various professional and academic benchmarks.',
-    url: 'https://arxiv.org/abs/2303.08774',
-    pdfUrl: 'https://arxiv.org/pdf/2303.08774.pdf',
-    domains: ['cs.AI', 'cs.LG'],
-    isFavorited: false,
-    metadata: {},
-  },
-  {
-    id: '4',
-    title: 'ResNet: Deep Residual Learning for Image Recognition',
-    authors: ['Kaiming He', 'Xiangyu Zhang', 'Shaoqing Ren'],
-    source: 'CVPR',
-    sourceType: 'cvpr',
-    publishDate: '2023-03-10',
-    abstract: 'Deeper neural networks are more difficult to train. We present a residual learning framework to ease the training of networks that are substantially deeper than those used previously. We explicitly reformulate the layers as learning residual functions with reference to the layer inputs, instead of learning unreferenced functions.',
-    url: 'https://arxiv.org/abs/1512.03385',
-    pdfUrl: 'https://arxiv.org/pdf/1512.03385.pdf',
-    domains: ['cs.CV', 'cs.LG'],
-    isFavorited: false,
-    metadata: {},
-  },
-  {
-    id: '5',
-    title: 'Language Models are Few-Shot Learners',
-    authors: ['Tom Brown', 'Benjamin Mann', 'Nick Ryder'],
-    source: 'NeurIPS',
-    sourceType: 'neurips',
-    publishDate: '2023-02-28',
-    abstract: 'Recent work has demonstrated substantial gains on many NLP tasks and benchmarks by pre-training on a large corpus of text followed by fine-tuning on a specific task. We show that scaling up language models greatly improves task-agnostic, few-shot performance, sometimes even reaching competitiveness with prior state-of-the-art fine-tuning approaches.',
-    url: 'https://arxiv.org/abs/2005.14165',
-    pdfUrl: 'https://arxiv.org/pdf/2005.14165.pdf',
-    domains: ['cs.CL', 'cs.LG'],
-    isFavorited: true,
-    metadata: {},
-  },
-  {
-    id: '6',
-    title: 'Generative Adversarial Networks',
-    authors: ['Ian Goodfellow', 'Jean Pouget-Abadie', 'Mehdi Mirza'],
-    source: 'NeurIPS',
-    sourceType: 'neurips',
-    publishDate: '2023-01-15',
-    abstract: 'We propose a new framework for estimating generative models via an adversarial process, in which we simultaneously train two models: a generative model G that captures the data distribution, and a discriminative model D that estimates the probability that a sample came from the training data rather than G.',
-    url: 'https://arxiv.org/abs/1406.2661',
-    pdfUrl: 'https://arxiv.org/pdf/1406.2661.pdf',
-    domains: ['cs.LG', 'stat.ML'],
-    isFavorited: false,
-    metadata: {},
-  },
-];
+  };
+}
 
 interface ArticleStore {
   articles: Article[];
@@ -95,25 +60,34 @@ interface ArticleStore {
   page: number;
   pageSize: number;
   filters: ArticleFilters;
+  sources: string[];
+  domains: string[];
   loading: boolean;
+  subscribedOnly: boolean;
   setFilters: (filters: Partial<ArticleFilters>) => void;
   fetchArticles: () => Promise<void>;
+  fetchSources: () => Promise<void>;
+  fetchDomains: () => Promise<void>;
   setPage: (page: number) => void;
   setPageSize: (size: number) => void;
+  setSubscribedOnly: (value: boolean) => void;
 }
 
 export const useArticleStore = create<ArticleStore>((set, get) => ({
-  articles: mockArticles,
-  totalCount: mockArticles.length,
+  articles: [],
+  totalCount: 0,
   page: 1,
-  pageSize: 5,
+  pageSize: 10,
   filters: {
     dateRange: [null, null],
     sources: [],
     author: '',
     domains: [],
   },
+  sources: [],
+  domains: [],
   loading: false,
+  subscribedOnly: false,
 
   setFilters: (filters) =>
     set((state) => ({
@@ -122,26 +96,58 @@ export const useArticleStore = create<ArticleStore>((set, get) => ({
 
   fetchArticles: async () => {
     set({ loading: true });
-    // Mock delay for prototype
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    const { filters } = get();
-    let filtered = mockArticles;
+    try {
+      const { filters, page, pageSize, subscribedOnly } = get();
 
-    if (filters.author) {
-      filtered = filtered.filter((a) =>
-        a.authors.some((author) => author.toLowerCase().includes(filters.author.toLowerCase()))
-      );
-    }
-    if (filters.sources.length > 0) {
-      filtered = filtered.filter((a) => filters.sources.includes(a.source));
-    }
-    if (filters.domains.length > 0) {
-      filtered = filtered.filter((a) => a.domains.some((d) => filters.domains.includes(d)));
-    }
+      const params: BackendPaperQueryParams = {
+        page,
+        page_size: pageSize,
+        query: filters.author || null,
+        start_date: filters.dateRange[0] || null,
+        end_date: filters.dateRange[1] || null,
+        sources: filters.sources.length > 0 ? filters.sources : null,
+        domains: filters.domains.length > 0 ? filters.domains : null,
+        subscribed_only: subscribedOnly,
+      };
 
-    set({ articles: filtered, totalCount: filtered.length, loading: false });
+      const response = await invoke<BackendPaperListResponse>('papers_list', { params });
+
+      const articles = response.articles.map(paperToArticle);
+
+      set({
+        articles,
+        totalCount: response.total,
+        page: response.page,
+        pageSize: response.page_size,
+        loading: false,
+      });
+    } catch (error) {
+      console.error('Failed to fetch articles:', error);
+      set({ loading: false, articles: [], totalCount: 0 });
+    }
+  },
+
+  fetchSources: async () => {
+    try {
+      const sources = await invoke<string[]>('papers_sources');
+      set({ sources });
+    } catch (error) {
+      console.error('Failed to fetch sources:', error);
+      set({ sources: [] });
+    }
+  },
+
+  fetchDomains: async () => {
+    try {
+      const domains = await invoke<string[]>('papers_domains');
+      set({ domains });
+    } catch (error) {
+      console.error('Failed to fetch domains:', error);
+      set({ domains: [] });
+    }
   },
 
   setPage: (page) => set({ page }),
   setPageSize: (size) => set({ pageSize: size, page: 1 }),
+  setSubscribedOnly: (value) => set({ subscribedOnly: value }),
 }));
