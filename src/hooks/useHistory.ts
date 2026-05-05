@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { HistoryRecord, HistoryFilters, StatsData } from '../types';
 
@@ -12,7 +12,7 @@ interface HistoryListResponse {
 export function useHistory() {
   const [records, setRecords] = useState<HistoryRecord[]>([]);
   const [totalCount, setTotalCount] = useState(0);
-  const [page, setPage] = useState(1);
+  const [page, setPageState] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [filters, setFiltersState] = useState<HistoryFilters>({
     dateRange: [null, null],
@@ -20,31 +20,41 @@ export function useHistory() {
   });
   const [loading, setLoading] = useState(false);
 
-  const setFilters = useCallback((newFilters: Partial<HistoryFilters>) => {
+  // 自动获取数据
+  useEffect(() => {
+    const fetchData = async () => {
+      setLoading(true);
+      try {
+        const response = await invoke<HistoryListResponse>('history_reading', {
+          page,
+          pageSize,
+          startDate: filters.dateRange[0] || null,
+          endDate: filters.dateRange[1] || null,
+          actions: filters.actions.length > 0 ? filters.actions : null,
+        });
+        setRecords(response.records);
+        setTotalCount(response.total);
+      } catch (error) {
+        console.error('Failed to fetch history:', error);
+        setRecords([]);
+        setTotalCount(0);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchData();
+  }, [page, pageSize, filters]);
+
+  // 更新筛选条件并重置页码
+  const updateFilters = useCallback((newFilters: Partial<HistoryFilters>) => {
     setFiltersState(prev => ({ ...prev, ...newFilters }));
-    setPage(1);
+    setPageState(1);
   }, []);
 
-  const fetchRecords = useCallback(async () => {
-    setLoading(true);
-    try {
-      const response = await invoke<HistoryListResponse>('history_reading', {
-        page,
-        pageSize,
-        startDate: filters.dateRange[0] || null,
-        endDate: filters.dateRange[1] || null,
-        actions: filters.actions.length > 0 ? filters.actions : null,
-      });
-      setRecords(response.records);
-      setTotalCount(response.total);
-    } catch (error) {
-      console.error('Failed to fetch history:', error);
-      setRecords([]);
-      setTotalCount(0);
-    } finally {
-      setLoading(false);
-    }
-  }, [page, pageSize, filters]);
+  // 更新页码
+  const updatePage = useCallback((newPage: number) => {
+    setPageState(newPage);
+  }, []);
 
   const logAction = useCallback(async (articleId: string, actionType: string) => {
     try {
@@ -78,9 +88,8 @@ export function useHistory() {
     pageSize,
     filters,
     loading,
-    fetchRecords,
-    setFilters,
-    setPage,
+    updateFilters,
+    updatePage,
     setPageSize,
     logAction,
     deleteRecentAction,

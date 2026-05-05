@@ -38,6 +38,8 @@ fn run() {
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_shell::init())
         .manage(state)
         .invoke_handler(tauri::generate_handler![
             // Settings
@@ -98,6 +100,7 @@ fn run() {
             chat_get_messages,
             chat_delete_session,
             chat_get_sessions,
+            chat_send_message,
             // Daily
             daily_list,
             daily_detail,

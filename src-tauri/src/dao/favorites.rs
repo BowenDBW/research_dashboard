@@ -259,3 +259,37 @@ pub fn move_favorite(conn: &DbConnection, article_id: i64, new_folder_id: Option
 
     Ok(())
 }
+
+/// Get folder statistics (subfolder count, paper count, including all descendants)
+pub fn get_folder_stats(conn: &DbConnection, folder_id: i64) -> Result<FolderStats, String> {
+    // Get direct subfolder count
+    let subfolder_count: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM favorite_folders WHERE parent_id = ?",
+        params![folder_id],
+        |row| row.get(0)
+    ).map_err(|e| format!("查询子文件夹数量失败: {}", e))?;
+
+    // Get total paper count (including all descendants)
+    // Use recursive CTE to get all descendant folders
+    let paper_count_sql = "
+        WITH RECURSIVE descendant_folders AS (
+            SELECT folder_id FROM favorite_folders WHERE folder_id = ?
+            UNION ALL
+            SELECT f.folder_id FROM favorite_folders f
+            JOIN descendant_folders d ON f.parent_id = d.folder_id
+        )
+        SELECT COUNT(*) FROM favorite_papers fp
+        WHERE fp.folder_id IN (SELECT folder_id FROM descendant_folders)
+    ";
+
+    let paper_count: i64 = conn.query_row(
+        paper_count_sql,
+        params![folder_id],
+        |row| row.get(0)
+    ).map_err(|e| format!("查询论文数量失败: {}", e))?;
+
+    Ok(FolderStats {
+        subfolder_count,
+        paper_count,
+    })
+}

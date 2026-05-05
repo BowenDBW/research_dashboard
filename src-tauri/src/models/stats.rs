@@ -5,11 +5,25 @@ use serde::{Deserialize, Serialize};
 /// Reading statistics
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReadingStats {
-    pub today_count: i64,
-    pub week_count: i64,
-    pub month_count: i64,
-    pub total_favorites: i64,
-    pub total_chats: i64,
+    // View counts (view_abstract action)
+    pub today_count: i64,        // Today's view count
+    pub week_count: i64,         // Last 7 days view count
+    pub days_30_count: i64,      // Last 30 days view count
+    pub month_count: i64,        // This month's view count (calendar month)
+    // Read counts (download action)
+    pub today_read_count: i64,   // Today's read count
+    pub week_read_count: i64,    // Last 7 days read count
+    pub days_30_read_count: i64, // Last 30 days read count
+    pub month_read_count: i64,   // This month's read count (calendar month)
+    // Favorites
+    pub week_favorites: i64,     // Last 7 days favorites
+    pub days_30_favorites: i64,  // Last 30 days favorites
+    pub total_favorites: i64,    // Total favorites
+    // Chats
+    pub week_chats: i64,         // Last 7 days chats
+    pub days_30_chats: i64,      // Last 30 days chats
+    pub total_chats: i64,        // Total chats
+    // Average
     pub avg_daily_count: f64,
 }
 

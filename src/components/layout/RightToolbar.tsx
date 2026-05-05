@@ -9,7 +9,6 @@ import {
   IconButton,
   Chip,
   Tooltip,
-  Collapse,
   ToggleButtonGroup,
   ToggleButton,
   alpha,
@@ -24,11 +23,12 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
+  Breadcrumbs,
+  Link,
 } from '@mui/material';
 import {
   ArrowForward as ArrowForwardIcon,
   ExpandMore as ExpandMoreIcon,
-  ExpandLess as ExpandLessIcon,
   Bookmark as BookmarkIcon,
   History as HistoryIcon,
   Tune as TuneIcon,
@@ -41,16 +41,16 @@ import {
   Search as SearchIcon,
   Summarize as SummarizeIcon,
   BarChart as BarChartIcon,
-  Today as TodayIcon,
-  DateRange as DateRangeIcon,
   DragIndicator as DragIndicatorIcon,
   Edit as EditIcon,
   Visibility as VisibilityIcon,
   VisibilityOff as VisibilityOffIcon,
+  MenuBook as MenuBookIcon,
   Done as DoneIcon,
   CloudDownload as CloudDownloadIcon,
   Schedule as ScheduleIcon,
   Storage as StorageIcon,
+  ArrowUpward as ArrowUpwardIcon,
   Refresh as RefreshIcon,
   Close as CloseIcon,
 } from '@mui/icons-material';
@@ -82,7 +82,7 @@ import { useChat } from '../../hooks';
 import { SubscriptionDialog } from '../common/SubscriptionDialog';
 import { AbstractDialog } from '../article/AbstractDialog';
 import { CategorySelectDialog } from '../common/CategorySelectDialog';
-import { FavoriteItem, Article } from '../../types';
+import { FavoriteItem, Article, HeatmapCell } from '../../types';
 import { MonthlyHeatmap } from '../stats/MonthlyHeatmap';
 import { getCategoryByCode } from '../../constants/academicCategories';
 import { useTranslation } from 'react-i18next';
@@ -109,48 +109,60 @@ const PANEL_CONFIG: Record<PanelId, { icon: React.ReactNode; labelKey: string; r
   subscription: { icon: <TuneIcon fontSize="small" sx={{ color: '#B39DDB' }} />, labelKey: 'subscription.title' },
 };
 
-// 递归渲染收藏夹项（最多三层）
+// 渲染收藏夹项（单层，点击文件夹进入子文件夹）
 const FavoriteItemRenderer = ({
   items,
-  level = 0,
-  expandedFolders,
-  toggleFolder,
+  onFolderClick,
   onArticleClick,
 }: {
   items: FavoriteItem[];
-  level?: number;
-  expandedFolders: Set<string>;
-  toggleFolder: (id: string) => void;
+  onFolderClick: (folderId: string) => void;
   onArticleClick: (article: Article) => void;
 }) => {
-  if (level >= 3) return null;
-
   return (
     <>
       {items.map((item) => (
-        <Box key={item.id}>
-          <Box
-            sx={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 0.5,
-              py: 0.5,
-              px: 1 + level * 1.5,
-              borderRadius: 1,
-              cursor: 'pointer',
-              '&:hover': { bgcolor: 'action.hover' },
-            }}
-            onClick={() => {
-              if (item.type === 'folder') {
-                toggleFolder(item.id);
-              } else if (item.article) {
-                onArticleClick(item.article);
-              }
-            }}
-          >
-            {item.type === 'folder' ? (
-              <>
-                <FolderIcon sx={{ color: '#FFA726', fontSize: 18 }} />
+        <Box
+          key={`${item.type}-${item.id}`}
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 0.5,
+            py: 0.5,
+            px: 1,
+            borderRadius: 1,
+            cursor: 'pointer',
+            '&:hover': { bgcolor: 'action.hover' },
+          }}
+          onClick={() => {
+            if (item.type === 'folder') {
+              onFolderClick(item.id);
+            } else if (item.article) {
+              onArticleClick(item.article);
+            }
+          }}
+        >
+          {item.type === 'folder' ? (
+            <>
+              <FolderIcon sx={{ color: '#FFA726', fontSize: 18 }} />
+              <Typography
+                variant="body2"
+                sx={{
+                  flex: 1,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                  fontWeight: 500,
+                }}
+              >
+                {item.name}
+              </Typography>
+              <ArrowForwardIcon sx={{ fontSize: 14, color: 'text.secondary' }} />
+            </>
+          ) : (
+            <>
+              <InsertDriveFileIcon sx={{ color: '#42A5F5', fontSize: 18 }} />
+              <Tooltip title={item.article?.title || ''} placement="top" arrow enterDelay={500}>
                 <Typography
                   variant="body2"
                   sx={{
@@ -158,48 +170,12 @@ const FavoriteItemRenderer = ({
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
                     whiteSpace: 'nowrap',
-                    fontWeight: 500,
                   }}
                 >
-                  {item.name}
+                  {item.article?.title}
                 </Typography>
-                {item.children && item.children.length > 0 && (
-                  expandedFolders.has(item.id) ? (
-                    <ExpandLessIcon sx={{ fontSize: 16, color: 'text.secondary' }} />
-                  ) : (
-                    <ExpandMoreIcon sx={{ fontSize: 16, color: 'text.secondary' }} />
-                  )
-                )}
-              </>
-            ) : (
-              <>
-                <InsertDriveFileIcon sx={{ color: '#42A5F5', fontSize: 18 }} />
-                <Tooltip title={item.article?.title || ''} placement="top" arrow enterDelay={500}>
-                  <Typography
-                    variant="body2"
-                    sx={{
-                      flex: 1,
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {item.article?.title}
-                  </Typography>
-                </Tooltip>
-              </>
-            )}
-          </Box>
-          {item.type === 'folder' && item.children && item.children.length > 0 && (
-            <Collapse in={expandedFolders.has(item.id)}>
-              <FavoriteItemRenderer
-                items={item.children}
-                level={level + 1}
-                expandedFolders={expandedFolders}
-                toggleFolder={toggleFolder}
-                onArticleClick={onArticleClick}
-              />
-            </Collapse>
+              </Tooltip>
+            </>
           )}
         </Box>
       ))}
@@ -259,7 +235,7 @@ const SortablePanel = ({
           userSelect: 'none',
         }}
       >
-        <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+        <AccordionSummary component="div" expandIcon={<ExpandMoreIcon />}>
           <Box sx={{ display: 'flex', alignItems: 'center', width: '100%' }}>
             {isEditMode && (
               <Box
@@ -292,8 +268,8 @@ const SortablePanel = ({
 export const RightToolbar = ({ open, onToggle }: RightToolbarProps) => {
   const navigate = useNavigate();
   const { t } = useTranslation();
-  const { items, navigateToFolder } = useFavorites();
-  const { records, fetchRecords } = useHistory();
+  const { items, folderPath, navigateToFolder } = useFavorites();
+  const { records } = useHistory();
   const { recommendations, fetchRecommendations } = useDaily();
   const { sessions, messages, switchSession, fetchSessions } = useChat();
   const { settings, updateSettings, loadSettings } = useSettingsStore();
@@ -301,7 +277,6 @@ export const RightToolbar = ({ open, onToggle }: RightToolbarProps) => {
   const { authors, categories, keywords, loadSubscriptions } = useSubscription();
   const [subscriptionDialogOpen, setSubscriptionDialogOpen] = useState(false);
   const [expandedPanels, setExpandedPanels] = useState<string[]>([]);
-  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
   const [abstractDialogOpen, setAbstractDialogOpen] = useState(false);
   const [selectedArticle, setSelectedArticle] = useState<Article | null>(null);
   const [selectedArticleFavorited, setSelectedArticleFavorited] = useState(false);
@@ -348,12 +323,45 @@ export const RightToolbar = ({ open, onToggle }: RightToolbarProps) => {
     // Initialize data fetching for sidebar panels
     loadSettings();
     navigateToFolder(null); // Load favorites root folder
-    fetchRecords();
+    // useHistory 自动获取数据，不需要手动调用
     fetchRecommendations(1, 10); // Fetch daily recommendations
     fetchSessions();
     fetchTodayStats();
+    // Fetch stats data for sidebar - get current month data
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = now.getMonth() + 1;
+    const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
+    const endDate = now.toISOString().split('T')[0];
+    fetchStats(startDate, endDate);
     loadSubscriptions();
   }, []);
+
+  // Fill missing days in heatmap data for current month (always show FULL month, 28-31 days)
+  const fillMissingDaysInHeatmap = (data: HeatmapCell[]): HeatmapCell[] => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = now.getMonth() + 1;
+
+    // Get total days in this month (28, 29, 30, or 31)
+    const totalDaysInMonth = new Date(year, month, 0).getDate();
+
+    const filledData: HeatmapCell[] = [];
+    const dataMap = new Map(data.map(d => [d.date, d]));
+
+    // Fill ALL days of the month, including future days (count=0 for future)
+    for (let day = 1; day <= totalDaysInMonth; day++) {
+      const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      const existingData = dataMap.get(dateStr);
+      if (existingData) {
+        filledData.push(existingData);
+      } else {
+        filledData.push({ date: dateStr, count: 0, level: 0 });
+      }
+    }
+
+    return filledData;
+  };
 
   // Get recent recommendations from state (first 5)
   const recentRecommendations = recommendations.slice(0, 5);
@@ -401,18 +409,6 @@ export const RightToolbar = ({ open, onToggle }: RightToolbarProps) => {
     setExpandedPanels((prev) =>
       prev.includes(panel) ? prev.filter((p) => p !== panel) : [...prev, panel]
     );
-  };
-
-  const toggleFolder = (folderId: string) => {
-    setExpandedFolders((prev) => {
-      const newSet = new Set(prev);
-      if (newSet.has(folderId)) {
-        newSet.delete(folderId);
-      } else {
-        newSet.add(folderId);
-      }
-      return newSet;
-    });
   };
 
   const handleArticleClick = (article: Article) => {
@@ -640,15 +636,70 @@ export const RightToolbar = ({ open, onToggle }: RightToolbarProps) => {
         );
 
       case 'favorites':
+        // Can go up if folderPath has more than 1 level
+        const canGoUp = folderPath.length > 1;
+        const handleGoUp = () => {
+          const parentId = folderPath[folderPath.length - 2]?.id;
+          navigateToFolder(parentId);
+        };
+        const handleBreadcrumbClick = (folderId: string | null) => {
+          navigateToFolder(folderId);
+        };
+        const handleFolderClick = (folderId: string) => {
+          navigateToFolder(folderId);
+        };
+
         return (
-          <Box sx={{ maxHeight: 200, overflow: 'auto' }}>
-            <FavoriteItemRenderer
-              items={items}
-              expandedFolders={expandedFolders}
-              toggleFolder={toggleFolder}
-              onArticleClick={handleArticleClick}
-            />
-          </Box>
+          <>
+            {/* Breadcrumb path */}
+            <Box sx={{ px: 1, pb: 0.5, borderBottom: 1, borderColor: 'divider' }}>
+              <Breadcrumbs sx={{ fontSize: '0.7rem' }}>
+                {folderPath.map((node) => (
+                  <Link
+                    key={node.id || 'root'}
+                    component="button"
+                    underline="hover"
+                    sx={{ fontSize: '0.7rem', cursor: 'pointer' }}
+                    onClick={() => handleBreadcrumbClick(node.id)}
+                  >
+                    {node.id === null ? t('favorites.rootFolder') : node.name}
+                  </Link>
+                ))}
+              </Breadcrumbs>
+            </Box>
+
+            {/* Back button */}
+            {canGoUp && (
+              <Box
+                sx={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 0.5,
+                  py: 0.5,
+                  px: 1,
+                  cursor: 'pointer',
+                  '&:hover': { bgcolor: 'action.hover' },
+                  borderBottom: 1,
+                  borderColor: 'divider',
+                }}
+                onClick={handleGoUp}
+              >
+                <ArrowUpwardIcon sx={{ fontSize: 16, color: 'text.secondary' }} />
+                <Typography variant="body2" color="text.secondary">
+                  {t('article.parentFolder')}
+                </Typography>
+              </Box>
+            )}
+
+            {/* Items list */}
+            <Box sx={{ maxHeight: 150, overflow: 'auto' }}>
+              <FavoriteItemRenderer
+                items={items}
+                onFolderClick={handleFolderClick}
+                onArticleClick={handleArticleClick}
+              />
+            </Box>
+          </>
         );
 
       case 'history':
@@ -747,30 +798,126 @@ export const RightToolbar = ({ open, onToggle }: RightToolbarProps) => {
         );
 
       case 'stats':
+        // Get sidebar cards configuration
+        const sidebarCards = settings.statsCardConfig?.sidebarCards || [
+          { id: 'sidebar-view-today-1', type: 'view_today', enabled: true },
+          { id: 'sidebar-favorite-total-1', type: 'favorite_total', enabled: true },
+        ];
+
+        // Helper to get stat value for card type
+        const getSidebarCardValue = (cardType: string): number => {
+          if (!statsData?.readingStats) return 0;
+          const stats = statsData.readingStats;
+          switch (cardType) {
+            // New types
+            case 'view_today':
+              return stats.todayCount;
+            case 'view_week':
+              return stats.weekCount;
+            case 'view_30days':
+              return stats.days30Count;
+            case 'view_month':
+              return stats.monthCount;
+            case 'read_today':
+              return stats.todayReadCount;
+            case 'read_week':
+              return stats.weekReadCount;
+            case 'read_30days':
+              return stats.days30ReadCount;
+            case 'read_month':
+              return stats.monthReadCount;
+            case 'favorite_week':
+              return stats.weekFavorites;
+            case 'favorite_30days':
+              return stats.days30Favorites;
+            case 'favorite_total':
+              return stats.totalFavorites;
+            case 'chat_week':
+              return stats.weekChats;
+            case 'chat_30days':
+              return stats.days30Chats;
+            case 'chat_total':
+              return stats.totalChats;
+            // Legacy types (backward compatibility)
+            case 'view':
+              return stats.todayCount;
+            case 'read':
+              return stats.todayReadCount;
+            case 'favorite':
+              return stats.totalFavorites;
+            case 'chat':
+              return stats.totalChats;
+            default:
+              return 0;
+          }
+        };
+
+        // Helper to get icon and color for card type
+        const getSidebarCardConfig = (cardType: string) => {
+          switch (cardType) {
+            // New types
+            case 'view_today':
+              return { icon: <VisibilityIcon sx={{ fontSize: 16 }} />, color: '#2196f3', label: t('stats.cardTypes.view_today') };
+            case 'view_week':
+              return { icon: <VisibilityIcon sx={{ fontSize: 16 }} />, color: '#42a5f5', label: t('stats.cardTypes.view_week') };
+            case 'view_30days':
+              return { icon: <VisibilityIcon sx={{ fontSize: 16 }} />, color: '#64b5f6', label: t('stats.cardTypes.view_30days') };
+            case 'view_month':
+              return { icon: <VisibilityIcon sx={{ fontSize: 16 }} />, color: '#90caf9', label: t('stats.cardTypes.view_month') };
+            case 'read_today':
+              return { icon: <MenuBookIcon sx={{ fontSize: 16 }} />, color: '#4CAF50', label: t('stats.cardTypes.read_today') };
+            case 'read_week':
+              return { icon: <MenuBookIcon sx={{ fontSize: 16 }} />, color: '#66bb6a', label: t('stats.cardTypes.read_week') };
+            case 'read_30days':
+              return { icon: <MenuBookIcon sx={{ fontSize: 16 }} />, color: '#81c784', label: t('stats.cardTypes.read_30days') };
+            case 'read_month':
+              return { icon: <MenuBookIcon sx={{ fontSize: 16 }} />, color: '#a5d6a7', label: t('stats.cardTypes.read_month') };
+            case 'favorite_week':
+              return { icon: <BookmarkIcon sx={{ fontSize: 16 }} />, color: '#FF9800', label: t('stats.cardTypes.favorite_week') };
+            case 'favorite_30days':
+              return { icon: <BookmarkIcon sx={{ fontSize: 16 }} />, color: '#ffa726', label: t('stats.cardTypes.favorite_30days') };
+            case 'favorite_total':
+              return { icon: <BookmarkIcon sx={{ fontSize: 16 }} />, color: '#ffb74d', label: t('stats.cardTypes.favorite_total') };
+            case 'chat_week':
+              return { icon: <ChatIcon sx={{ fontSize: 16 }} />, color: '#9C27B0', label: t('stats.cardTypes.chat_week') };
+            case 'chat_30days':
+              return { icon: <ChatIcon sx={{ fontSize: 16 }} />, color: '#ab47bc', label: t('stats.cardTypes.chat_30days') };
+            case 'chat_total':
+              return { icon: <ChatIcon sx={{ fontSize: 16 }} />, color: '#ba68c8', label: t('stats.cardTypes.chat_total') };
+            // Legacy types (backward compatibility)
+            case 'view':
+              return { icon: <VisibilityIcon sx={{ fontSize: 16 }} />, color: '#2196f3', label: t('stats.cardTypes.view_today') };
+            case 'read':
+              return { icon: <MenuBookIcon sx={{ fontSize: 16 }} />, color: '#4CAF50', label: t('stats.cardTypes.read_today') };
+            case 'favorite':
+              return { icon: <BookmarkIcon sx={{ fontSize: 16 }} />, color: '#FF9800', label: t('stats.cardTypes.favorite_total') };
+            case 'chat':
+              return { icon: <ChatIcon sx={{ fontSize: 16 }} />, color: '#9C27B0', label: t('stats.cardTypes.chat_total') };
+            default:
+              return { icon: <VisibilityIcon sx={{ fontSize: 16 }} />, color: '#2196f3', label: t('stats.cardTypes.view_today') };
+          }
+        };
+
         return (
           <>
             <Box sx={{ display: 'flex', justifyContent: 'center' }}>
-              <MonthlyHeatmap data={statsData?.heatmapData || []} size="small" />
+              <MonthlyHeatmap data={fillMissingDaysInHeatmap(statsData?.heatmapData || [])} size="small" />
             </Box>
             <Box sx={{ display: 'flex', justifyContent: 'space-around', mt: 1.5, pt: 1.5, borderTop: 1, borderColor: 'divider' }}>
-              <Box sx={{ textAlign: 'center' }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.5, mb: 0.5 }}>
-                  <TodayIcon sx={{ fontSize: 16, color: '#2196f3' }} />
-                  <Typography variant="caption" color="text.secondary">{t('rightToolbar.today')}</Typography>
-                </Box>
-                <Typography variant="h6" sx={{ fontWeight: 600, color: '#2196f3' }}>
-                  {todayStats?.todayCount || statsData?.readingStats?.todayCount || 0}
-                </Typography>
-              </Box>
-              <Box sx={{ textAlign: 'center' }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.5, mb: 0.5 }}>
-                  <DateRangeIcon sx={{ fontSize: 16, color: '#4CAF50' }} />
-                  <Typography variant="caption" color="text.secondary">{t('rightToolbar.thisMonth')}</Typography>
-                </Box>
-                <Typography variant="h6" sx={{ fontWeight: 600, color: '#4CAF50' }}>
-                  {statsData?.readingStats?.monthCount || 0}
-                </Typography>
-              </Box>
+              {sidebarCards.filter(c => c.enabled).map((card) => {
+                const config = getSidebarCardConfig(card.type);
+                return (
+                  <Box key={card.id} sx={{ textAlign: 'center' }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.5, mb: 0.5 }}>
+                      <Box sx={{ color: config.color }}>{config.icon}</Box>
+                      <Typography variant="caption" color="text.secondary">{config.label}</Typography>
+                    </Box>
+                    <Typography variant="h6" sx={{ fontWeight: 600, color: config.color }}>
+                      {getSidebarCardValue(card.type)}
+                    </Typography>
+                  </Box>
+                );
+              })}
             </Box>
           </>
         );
@@ -778,24 +925,68 @@ export const RightToolbar = ({ open, onToggle }: RightToolbarProps) => {
       case 'subscription':
         return (
           <>
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-              {t('rightToolbar.subscriptionHint')}
-            </Typography>
-            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-              {categories.slice(0, 3).map((cat) => (
-                <Chip key={cat.id} label={cat.category} size="small" />
-              ))}
-              {keywords.slice(0, 2).map((kw) => (
-                <Chip key={kw.id} label={kw.keyword} size="small" />
-              ))}
-            </Box>
-            {authors.length > 0 && (
-              <Box sx={{ mt: 1, display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                {authors.slice(0, 2).map((author) => (
-                  <Chip key={author.id} label={author.authorName} size="small" variant="outlined" />
-                ))}
+            {/* Keywords row */}
+            <Box sx={{ mb: 1.5 }}>
+              <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: 'block' }}>
+                {t('subscription.keywords')} ({keywords.length})
+              </Typography>
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, alignItems: 'center' }}>
+                {keywords.length === 0 ? (
+                  <Typography variant="body2" color="text.disabled">-</Typography>
+                ) : [
+                  ...keywords.slice(0, 3).map((kw) => (
+                    <Chip key={kw.id} label={kw.keyword} size="small" />
+                  )),
+                  keywords.length > 3 ? (
+                    <Chip key="more-keywords" label={`+${keywords.length - 3}`} size="small" variant="outlined" color="primary" />
+                  ) : null
+                ]}
               </Box>
-            )}
+            </Box>
+
+            {/* Authors row */}
+            <Box sx={{ mb: 1.5 }}>
+              <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: 'block' }}>
+                {t('subscription.subscribedAuthors')} ({authors.length})
+              </Typography>
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, alignItems: 'center' }}>
+                {authors.length === 0 ? (
+                  <Typography variant="body2" color="text.disabled">-</Typography>
+                ) : [
+                  ...authors.slice(0, 3).map((author) => (
+                    <Chip key={author.id} label={author.authorName} size="small" variant="outlined" />
+                  )),
+                  authors.length > 3 ? (
+                    <Chip key="more-authors" label={`+${authors.length - 3}`} size="small" variant="outlined" color="primary" />
+                  ) : null
+                ]}
+              </Box>
+            </Box>
+
+            {/* Categories (Domains) row */}
+            <Box sx={{ mb: 1.5 }}>
+              <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: 'block' }}>
+                {t('subscription.subscribedCategories')} ({categories.length})
+              </Typography>
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, alignItems: 'center' }}>
+                {categories.length === 0 ? (
+                  <Typography variant="body2" color="text.disabled">-</Typography>
+                ) : [
+                  ...categories.slice(0, 3).map((cat) => (
+                    <Chip
+                      key={cat.id}
+                      label={cat.category}
+                      size="small"
+                      variant="outlined"
+                    />
+                  )),
+                  categories.length > 3 ? (
+                    <Chip key="more-categories" label={`+${categories.length - 3}`} size="small" variant="outlined" color="primary" />
+                  ) : null
+                ]}
+              </Box>
+            </Box>
+
             <IconButton
               onClick={() => setSubscriptionDialogOpen(true)}
               sx={{ mt: 1 }}

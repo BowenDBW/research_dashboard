@@ -1,9 +1,23 @@
 export interface ReadingStats {
-  todayCount: number;
-  monthCount: number;
-  weekCount: number;
-  totalFavorites: number;
-  totalChats: number;
+  // View counts (view_abstract action)
+  todayCount: number;         // Today's view count
+  weekCount: number;          // Last 7 days view count
+  days30Count: number;        // Last 30 days view count
+  monthCount: number;         // This month's view count (calendar month)
+  // Read counts (download action)
+  todayReadCount: number;     // Today's read count
+  weekReadCount: number;      // Last 7 days read count
+  days30ReadCount: number;    // Last 30 days read count
+  monthReadCount: number;     // This month's read count (calendar month)
+  // Favorites
+  weekFavorites: number;      // Last 7 days favorites
+  days30Favorites: number;    // Last 30 days favorites
+  totalFavorites: number;     // Total favorites
+  // Chats
+  weekChats: number;          // Last 7 days chats
+  days30Chats: number;        // Last 30 days chats
+  totalChats: number;         // Total chats
+  // Average
   avgDailyCount: number;
 }
 

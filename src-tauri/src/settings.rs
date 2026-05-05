@@ -6,7 +6,8 @@ use std::path::PathBuf;
 use serde_json::Value;
 use tauri::Manager;
 
-use crate::llm::{CloudLlmProvider, ConnectionTestResult, test_local_connection};
+use crate::llm::{ConnectionTestResult, test_local_connection};
+use crate::llm::cloud::CloudLlmProvider;
 
 // ==========================================
 // Storage path management
@@ -87,19 +88,42 @@ fn get_default_settings() -> Value {
         "autoLaunch": false,
         "cloudProviders": [],
         "localProviders": [],
-        "selectedModelId": null
+        "selectedModelId": null,
+        "statsCardConfig": {
+            "cards": [
+                {"id": "view-today-1", "type": "view_today", "enabled": true},
+                {"id": "read-today-1", "type": "read_today", "enabled": true},
+                {"id": "view-week-1", "type": "view_week", "enabled": true},
+                {"id": "read-week-1", "type": "read_week", "enabled": true}
+            ],
+            "sidebarCards": [
+                {"id": "sidebar-view-today-1", "type": "view_today", "enabled": true},
+                {"id": "sidebar-favorite-total-1", "type": "favorite_total", "enabled": true}
+            ]
+        }
     })
 }
 
-/// Ensure settings file exists, return settings content
+/// Ensure settings file exists, return settings content with defaults merged
 pub fn ensure_settings() -> Result<Value, String> {
     let settings_path = get_settings_path()?;
 
     if settings_path.exists() {
         let content = fs::read_to_string(&settings_path)
             .map_err(|e| format!("读取设置文件失败: {}", e))?;
-        let json: Value = serde_json::from_str(&content)
+        let mut json: Value = serde_json::from_str(&content)
             .map_err(|e| format!("解析设置JSON失败: {}", e))?;
+
+        // Merge with defaults for any missing fields
+        let default = get_default_settings();
+        if let (Some(obj), Some(default_obj)) = (json.as_object_mut(), default.as_object()) {
+            for (key, value) in default_obj {
+                if !obj.contains_key(key) {
+                    obj.insert(key.clone(), value.clone());
+                }
+            }
+        }
+
         Ok(json)
     } else {
         let default = get_default_settings();

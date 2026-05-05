@@ -11,14 +11,15 @@ import {
   TextField,
   Chip,
   Pagination,
-  Select,
-  MenuItem,
   FormControl,
   InputLabel,
+  Select,
+  MenuItem,
   Skeleton,
   FormControlLabel,
   Switch,
   Tooltip,
+  Autocomplete,
 } from '@mui/material';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
@@ -29,25 +30,66 @@ import {
 } from '@mui/icons-material';
 import dayjs from 'dayjs';
 import { useTranslation } from 'react-i18next';
-import { useSettingsStore } from '../../stores/useSettingsStore';
-import { useArticles } from '../../hooks';
+import { useArticles, useSubscription } from '../../hooks';
 import { ArticleCard } from '../../components/article/ArticleCard';
+
+interface VenueRanking {
+  id: number;
+  venueId: number;
+  rankingSource: string;
+  rankingCategory: string | null;
+}
+
+interface VenueOption {
+  name: string;
+  abbreviation?: string;
+  venueType?: string;
+  rankings?: VenueRanking[];
+}
 
 const ArticleListPage = () => {
   const navigate = useNavigate();
   const { t } = useTranslation();
-  const { settings } = useSettingsStore();
-  const { articles, totalCount, loading, fetchArticles } = useArticles();
+  const { articles, totalCount, loading, fetchArticles, searchVenues } = useArticles();
+  const { categories, loadSubscriptions } = useSubscription();
 
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [searchQuery, setSearchQuery] = useState('');
-  const [localSources, setLocalSources] = useState<string[]>([]);
+  const [localSources, setLocalSources] = useState<string | null>(null);
+  const [venueOptions, setVenueOptions] = useState<VenueOption[]>([]);
+  const [venueSearchLoading, setVenueSearchLoading] = useState(false);
+  const [venueInputValue, setVenueInputValue] = useState('');
   const [localDomains, setLocalDomains] = useState<string[]>([]);
   const [startDate, setStartDate] = useState<dayjs.Dayjs | null>(null);
   const [endDate, setEndDate] = useState<dayjs.Dayjs | null>(null);
   const [showArxivOnly, setShowArxivOnly] = useState(false);
   const [showSubscribedOnly, setShowSubscribedOnly] = useState(false);
+
+  // Load subscribed categories on mount
+  useEffect(() => {
+    loadSubscriptions();
+  }, [loadSubscriptions]);
+
+  // Get domain codes from subscribed categories
+  const subscribedDomainCodes = categories.map(c => c.category);
+
+  // Venue search handler
+  const handleVenueSearch = useCallback(async (query: string) => {
+    if (!query || query.length < 1) {
+      setVenueOptions([]);
+      return;
+    }
+    setVenueSearchLoading(true);
+    const results = await searchVenues(query, 20);
+    setVenueOptions(results.map(v => ({
+      name: v.name,
+      abbreviation: v.abbreviation || undefined,
+      venueType: v.venueType || undefined,
+      rankings: v.rankings,
+    })));
+    setVenueSearchLoading(false);
+  }, [searchVenues]);
 
   const loadArticles = useCallback(() => {
     fetchArticles({
@@ -56,7 +98,7 @@ const ArticleListPage = () => {
       query: searchQuery || null,
       startDate: startDate?.format('YYYY-MM-DD') || null,
       endDate: endDate?.format('YYYY-MM-DD') || null,
-      sources: localSources.length > 0 ? localSources : null,
+      sources: localSources ? [localSources] : null,
       domains: showArxivOnly && localDomains.length > 0 ? localDomains : null,
       subscribedOnly: showSubscribedOnly,
     });
@@ -77,6 +119,10 @@ const ArticleListPage = () => {
   };
 
   const totalPages = Math.ceil(totalCount / pageSize) || 1;
+
+  const handleArticleUpdated = useCallback(() => {
+    loadArticles();
+  }, [loadArticles]);
 
   return (
     <LocalizationProvider dateAdapter={AdapterDayjs}>
@@ -100,7 +146,7 @@ const ArticleListPage = () => {
                       const checked = e.target.checked;
                       setShowArxivOnly(checked);
                       if (checked) {
-                        setLocalDomains([...settings.crawlerCategories]);
+                        setLocalDomains([...subscribedDomainCodes]);
                       } else {
                         setLocalDomains([]);
                       }
@@ -112,7 +158,7 @@ const ArticleListPage = () => {
                 sx={{ mr: 0.5 }}
               />
             </Tooltip>
-            <Tooltip title={t('articles.showSubscribed')} arrow>
+            <Tooltip title={t('articles.showSubscribedHint')} arrow>
               <FormControlLabel
                 control={
                   <Switch
@@ -163,40 +209,75 @@ const ArticleListPage = () => {
                 />
               </Box>
               <Box sx={{ width: '50%' }}>
-                <FormControl size="small" fullWidth>
-                  <InputLabel>{t('articles.conference')}</InputLabel>
-                  <Select
-                    multiple
-                    value={localSources}
-                    label={t('articles.conference')}
-                    onChange={(e) => setLocalSources(e.target.value as string[])}
-                    renderValue={(selected) => (
-                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                        {selected.map((value) => (
-                          <Chip key={value} label={value} size="small" />
-                        ))}
-                      </Box>
-                    )}
-                  >
-                    <MenuItem value="NeurIPS">NeurIPS</MenuItem>
-                    <MenuItem value="ICML">ICML</MenuItem>
-                    <MenuItem value="ICLR">ICLR</MenuItem>
-                    <MenuItem value="CVPR">CVPR</MenuItem>
-                    <MenuItem value="ACL">ACL</MenuItem>
-                    <MenuItem value="EMNLP">EMNLP</MenuItem>
-                  </Select>
-                </FormControl>
+                <Autocomplete
+                  size="small"
+                  options={venueOptions}
+                  getOptionLabel={(option) => option.abbreviation ? `${option.abbreviation} (${option.name})` : option.name}
+                  value={localSources ? (venueOptions.find(v => v.name === localSources || v.abbreviation === localSources) || { name: localSources }) : null}
+                  onInputChange={(e, value) => {
+                    setVenueInputValue(value);
+                    handleVenueSearch(value);
+                  }}
+                  inputValue={venueInputValue}
+                  onChange={(_, newValue) => setLocalSources(newValue ? (newValue.abbreviation || newValue.name) : null)}
+                  loading={venueSearchLoading}
+                  groupBy={(option) => option.venueType === 'journal' ? t('articles.journalGroup') : option.venueType === 'conference' ? t('articles.conferenceGroup') : t('articles.otherGroup')}
+                  isOptionEqualToValue={(option, value) => option.name === value.name || option.abbreviation === value.name}
+                  renderOption={(props, option) => {
+                    const { key, ...otherProps } = props;
+                    return (
+                      <li key={key} {...otherProps}>
+                        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.25, width: '100%' }}>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                            <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                              {option.abbreviation || option.name}
+                            </Typography>
+                            {option.abbreviation && (
+                              <Typography variant="caption" color="text.secondary">
+                                ({option.name})
+                              </Typography>
+                            )}
+                          </Box>
+                          {option.rankings && option.rankings.length > 0 && (
+                            <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+                              {option.rankings.map((r) => (
+                                <Chip
+                                  key={r.id}
+                                  label={`${r.rankingSource.toUpperCase()} ${r.rankingCategory || ''}`}
+                                  size="small"
+                                  color={
+                                    r.rankingSource === 'ccf'
+                                      ? r.rankingCategory === 'A' ? 'primary' : r.rankingCategory === 'B' ? 'secondary' : 'success'
+                                      : r.rankingSource === 'jcr'
+                                        ? r.rankingCategory === 'Q1' ? 'primary' : r.rankingCategory === 'Q2' ? 'secondary' : 'success'
+                                        : 'default'
+                                  }
+                                  sx={{ height: 20, fontSize: '0.65rem' }}
+                                />
+                              ))}
+                            </Box>
+                          )}
+                        </Box>
+                      </li>
+                    );
+                  }}
+                  renderInput={(params) => (
+                    <TextField {...params} label={t('articles.conference')} placeholder={t('articles.conferencePlaceholder')} />
+                  )}
+                  noOptionsText={t('articles.typeToSearch')}
+                  filterOptions={(x) => x}
+                />
               </Box>
             </Box>
 
             {/* 领域筛选（仅当 arXiv 开关打开时显示） */}
-            {showArxivOnly && (
+            {showArxivOnly && subscribedDomainCodes.length > 0 && (
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, pl: 1.5 }}>
                 <Typography variant="body2" color="text.secondary" sx={{ whiteSpace: 'nowrap' }}>
                   {t('articles.domainsLabel')}:
                 </Typography>
                 <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                  {settings.crawlerCategories.map((domain) => (
+                  {subscribedDomainCodes.map((domain) => (
                     <Chip
                       key={domain}
                       label={domain}
@@ -214,35 +295,21 @@ const ArticleListPage = () => {
 
         {/* Content - Scrollable Area */}
         <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', position: 'relative' }}>
-          <Container maxWidth="lg" sx={{ flex: 1, pt: 2, pb: 2, overflow: 'auto', position: 'relative' }}>
-            {/* Top Gradient overlay */}
-            <Box
-              sx={{
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                right: 0,
-                height: 32,
-                background: (theme) => `linear-gradient(to bottom, ${theme.palette.background.paper}F2, ${theme.palette.background.paper}00)`,
-                pointerEvents: 'none',
-                zIndex: 1,
-              }}
-            />
+          {/* Top Gradient overlay - outside scroll container */}
+          <Box
+            sx={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              height: 32,
+              background: (theme) => `linear-gradient(to bottom, ${theme.palette.background.paper}F2, ${theme.palette.background.paper}00)`,
+              pointerEvents: 'none',
+              zIndex: 1,
+            }}
+          />
 
-            {/* Bottom Gradient overlay */}
-            <Box
-              sx={{
-                position: 'absolute',
-                bottom: 0,
-                left: 0,
-                right: 0,
-                height: 32,
-                background: (theme) => `linear-gradient(to top, ${theme.palette.background.paper}F2, ${theme.palette.background.paper}00)`,
-                pointerEvents: 'none',
-                zIndex: 1,
-              }}
-            />
-
+          <Container maxWidth="lg" sx={{ flex: 1, pt: 2, pb: 2, overflow: 'auto' }}>
             {/* Article List */}
             <Box>
               {loading ? (
@@ -257,11 +324,25 @@ const ArticleListPage = () => {
                 </Box>
               ) : (
                 articles.map((article) => (
-                  <ArticleCard key={article.id} article={article} />
+                  <ArticleCard key={article.id} article={article} onArticleUpdated={handleArticleUpdated} />
                 ))
               )}
             </Box>
           </Container>
+
+          {/* Bottom Gradient overlay - outside scroll container */}
+          <Box
+            sx={{
+              position: 'absolute',
+              bottom: 48,
+              left: 0,
+              right: 0,
+              height: 32,
+              background: (theme) => `linear-gradient(to top, ${theme.palette.background.paper}F2, ${theme.palette.background.paper}00)`,
+              pointerEvents: 'none',
+              zIndex: 1,
+            }}
+          />
 
           {/* Pagination - Fixed at bottom */}
           <Paper sx={{ px: 3, py: 1, borderTop: 1, borderColor: 'divider', flexShrink: 0 }}>

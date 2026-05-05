@@ -36,5 +36,5 @@ pub struct CreateSessionRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SendMessageRequest {
     pub content: String,
-    pub model_id: String,
+    pub model_id: Option<String>,
 }

@@ -57,7 +57,8 @@ const FavoritesPage = () => {
     renameFolder,
     deleteFolder,
     cutFolder,
-    pasteFolder,
+    cutPaper,
+    pasteItem,
     removeFavorite,
   } = useFavorites();
 
@@ -75,10 +76,10 @@ const FavoritesPage = () => {
   // Navigate to folder on mount or folderId change
   useEffect(() => {
     navigateToFolder(folderId || null);
-  }, [folderId, navigateToFolder]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [folderId]);
 
   const handleBreadcrumbClick = (folderId: string | null) => {
-    navigateToFolder(folderId);
     if (folderId === null) {
       navigate('/favorites');
     } else {
@@ -89,7 +90,6 @@ const FavoritesPage = () => {
   const handleFolderClick = (item: { id: string; type: string }) => {
     if (item.type === 'folder') {
       navigate(`/favorites/${item.id}`);
-      navigateToFolder(item.id);
     }
   };
 
@@ -110,7 +110,7 @@ const FavoritesPage = () => {
 
   const handleNewFolder = async () => {
     if (newFolderName.trim()) {
-      await createFolder(newFolderName);
+      await createFolder(newFolderName, currentFolderId);
       setNewFolderDialogOpen(false);
       setNewFolderName('');
     }
@@ -143,7 +143,7 @@ const FavoritesPage = () => {
 
   const handlePaste = async () => {
     if (clipboard) {
-      await pasteFolder(currentFolderId);
+      await pasteItem(currentFolderId);
     }
   };
 
@@ -155,7 +155,7 @@ const FavoritesPage = () => {
     return `${authors.slice(0, 3).join(', ')} et al.`;
   };
 
-  const folderContextMenuItems = [
+  const folderContextMenuItems = (folderId: string) => [
     {
       label: t('favorites.renameFolder'),
       icon: <EditIcon />,
@@ -164,6 +164,22 @@ const FavoritesPage = () => {
       },
     },
     {
+      label: t('favorites.cutFolder'),
+      icon: <ContentCutIcon />,
+      onClick: () => {
+        cutFolder(folderId);
+      },
+    },
+    ...(clipboard
+      ? [
+          {
+            label: t('favorites.pasteFolder'),
+            icon: <ContentPasteIcon />,
+            onClick: handlePaste,
+          },
+        ]
+      : []),
+    {
       label: t('favorites.deleteFolder'),
       icon: <DeleteIcon />,
       danger: true,
@@ -171,18 +187,9 @@ const FavoritesPage = () => {
         setDeleteDialogOpen(true);
       },
     },
-    {
-      label: t('favorites.cutFolder'),
-      icon: <ContentCutIcon />,
-      onClick: () => {
-        if (selectedFolderId) {
-          cutFolder(selectedFolderId);
-        }
-      },
-    },
   ];
 
-  const fileContextMenuItems = (article: Article, _itemId: string) => [
+  const fileContextMenuItems = (article: Article, itemId: string) => [
     {
       label: t('favorites.properties'),
       icon: <InfoIcon />,
@@ -194,7 +201,7 @@ const FavoritesPage = () => {
       label: t('favorites.cut'),
       icon: <ContentCutIcon />,
       onClick: () => {
-        // 这里可以添加剪贴逻辑
+        cutPaper(itemId);
       },
     },
     {
@@ -276,10 +283,10 @@ const FavoritesPage = () => {
         <Box sx={{ minHeight: '100%' }} onContextMenu={(e) => e.preventDefault()}>
           <List>
             {items.map((item) => (
-              <div key={item.id}>
+              <div key={`${item.type}-${item.id}`}>
                 {item.type === 'folder' ? (
                   <ContextMenu
-                    items={folderContextMenuItems.map((i) => ({
+                    items={folderContextMenuItems(item.id).map((i) => ({
                       ...i,
                       onClick: () => {
                         setSelectedFolderId(item.id);

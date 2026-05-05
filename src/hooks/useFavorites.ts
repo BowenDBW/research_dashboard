@@ -2,15 +2,37 @@ import { useState, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { FavoriteItem, FolderNode, Article } from '../types';
 
+// 后端返回的类型（没有 type 字段）
+interface BackendFolder {
+  id: string;
+  parentId: string | null;
+  name: string;
+  createdAt: string;
+}
+
+interface BackendPaper {
+  id: string;
+  folderId: string | null;
+  name: string;
+  article: Article | null;
+  createdAt: string;
+}
+
+interface BackendBreadcrumb {
+  id: string | null;
+  name: string;
+}
+
 interface FolderContentsResponse {
-  folders: FavoriteItem[];
-  papers: FavoriteItem[];
-  path: FolderNode[];
+  folders: BackendFolder[];
+  papers: BackendPaper[];
+  path: BackendBreadcrumb[];
 }
 
 interface FavoriteClipboard {
-  type: 'cut';
-  folderId: string;
+  action: 'cut';
+  itemType: 'folder' | 'paper';
+  itemId: string;
 }
 
 export function useFavorites() {
@@ -21,14 +43,43 @@ export function useFavorites() {
   const [loading, setLoading] = useState(false);
 
   const navigateToFolder = useCallback(async (folderId: string | null) => {
+    console.log('[navigateToFolder] 开始导航到文件夹:', folderId);
     setLoading(true);
     setCurrentFolderId(folderId);
     try {
       const response = await invoke<FolderContentsResponse>('favorites_contents', {
         folderId: folderId ? parseInt(folderId) : null,
       });
-      setItems([...response.folders, ...response.papers]);
-      setFolderPath(response.path);
+      console.log('[navigateToFolder] 后端返回数据:', response);
+      console.log('[navigateToFolder] folders数量:', response.folders?.length);
+      console.log('[navigateToFolder] papers数量:', response.papers?.length);
+
+      // 给 folders 添加 type: 'folder'
+      const folderItems: FavoriteItem[] = (response.folders || []).map(f => ({
+        ...f,
+        type: 'folder' as const,
+        parentId: f.parentId,
+      }));
+
+      // 给 papers 添加 type: 'file'
+      const paperItems: FavoriteItem[] = (response.papers || []).map(p => ({
+        ...p,
+        type: 'file' as const,
+        parentId: p.folderId,
+        article: p.article || undefined,
+      }));
+
+      const allItems = [...folderItems, ...paperItems];
+      console.log('[navigateToFolder] 设置items数量:', allItems.length);
+      setItems(allItems);
+
+      // 转换 path
+      const pathNodes: FolderNode[] = (response.path || []).map(p => ({
+        id: p.id,
+        name: p.name,
+        parentId: null,
+      }));
+      setFolderPath(pathNodes);
     } catch (error) {
       console.error('Failed to navigate:', error);
       setItems([]);
@@ -39,12 +90,18 @@ export function useFavorites() {
 
   const createFolder = useCallback(async (name: string, parentId?: string | null) => {
     try {
-      const response = await invoke<FavoriteItem>('favorites_create_folder', {
+      const response = await invoke<BackendFolder>('favorites_create_folder', {
         name,
         parentId: parentId ? parseInt(parentId) : null,
       });
-      setItems(prev => [...prev, response]);
-      return response.id;
+      // 添加 type 字段
+      const folderItem: FavoriteItem = {
+        ...response,
+        type: 'folder' as const,
+        parentId: response.parentId,
+      };
+      setItems(prev => [...prev, folderItem]);
+      return folderItem.id;
     } catch (error) {
       console.error('Failed to create folder:', error);
       throw error;
@@ -75,20 +132,31 @@ export function useFavorites() {
   }, []);
 
   const cutFolder = useCallback((folderId: string) => {
-    setClipboard({ type: 'cut', folderId });
+    setClipboard({ action: 'cut', itemType: 'folder', itemId: folderId });
   }, []);
 
-  const pasteFolder = useCallback(async (targetParentId: string | null) => {
+  const cutPaper = useCallback((paperId: string) => {
+    setClipboard({ action: 'cut', itemType: 'paper', itemId: paperId });
+  }, []);
+
+  const pasteItem = useCallback(async (targetFolderId: string | null) => {
     if (!clipboard) return;
     try {
-      await invoke('favorites_move_folder', {
-        folderId: parseInt(clipboard.folderId),
-        newParentId: targetParentId ? parseInt(targetParentId) : null,
-      });
-      await navigateToFolder(currentFolderId);
+      if (clipboard.itemType === 'folder') {
+        await invoke('favorites_move_folder', {
+          folderId: parseInt(clipboard.itemId),
+          newParentId: targetFolderId ? parseInt(targetFolderId) : null,
+        });
+      } else if (clipboard.itemType === 'paper') {
+        await invoke('favorites_move_paper', {
+          articleId: parseInt(clipboard.itemId),
+          newFolderId: targetFolderId ? parseInt(targetFolderId) : null,
+        });
+      }
       setClipboard(null);
+      await navigateToFolder(currentFolderId);
     } catch (error) {
-      console.error('Failed to paste folder:', error);
+      console.error('Failed to paste item:', error);
       throw error;
     }
   }, [clipboard, currentFolderId, navigateToFolder]);
@@ -160,7 +228,8 @@ export function useFavorites() {
     renameFolder,
     deleteFolder,
     cutFolder,
-    pasteFolder,
+    cutPaper,
+    pasteItem,
     addFavorite,
     removeFavorite,
     movePaper,

@@ -59,7 +59,7 @@ export const DomainChart = ({ data }: DomainChartProps) => {
               {domain.domain}
             </Typography>
             <Typography variant="body2" sx={{ fontSize: '0.7rem', color: 'text.secondary' }}>
-              {domain.count} ({domain.percentage}%)
+              {domain.count} ({domain.percentage.toFixed(2)}%)
             </Typography>
           </Box>
         ))}

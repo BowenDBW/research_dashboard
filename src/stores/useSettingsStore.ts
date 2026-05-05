@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
-import { AppSettings, ConnectionTestResult, CloudProviderConfig, LocalProviderConfig } from '../types';
+import { AppSettings, ConnectionTestResult, CloudProviderConfig, LocalProviderConfig, StatsCardConfig } from '../types';
 
 interface SettingsStore {
   settings: AppSettings;
@@ -15,7 +15,21 @@ interface SettingsStore {
   removeLocalProvider: (id: string) => Promise<void>;
   setSelectedModel: (modelId: string | null) => Promise<void>;
   testConnection: (providerId: string, type: 'cloud' | 'local') => Promise<ConnectionTestResult>;
+  updateStatsCardConfig: (config: StatsCardConfig) => Promise<void>;
 }
+
+const DEFAULT_STATS_CARD_CONFIG: StatsCardConfig = {
+  cards: [
+    { id: 'view-today-1', type: 'view_today', enabled: true },
+    { id: 'read-today-1', type: 'read_today', enabled: true },
+    { id: 'view-week-1', type: 'view_week', enabled: true },
+    { id: 'read-week-1', type: 'read_week', enabled: true },
+  ],
+  sidebarCards: [
+    { id: 'sidebar-view-today-1', type: 'view_today', enabled: true },
+    { id: 'sidebar-favorite-total-1', type: 'favorite_total', enabled: true },
+  ],
+};
 
 // 仅保留一个空壳占位符，防止在 Rust 数据返回前 React 渲染报错（不要再在这里手写假数据了！）
 const emptyState: AppSettings = {
@@ -27,6 +41,7 @@ const emptyState: AppSettings = {
   cloudProviders: [],
   localProviders: [],
   selectedModelId: null,
+  statsCardConfig: DEFAULT_STATS_CARD_CONFIG,
 };
 
 export const useSettingsStore = create<SettingsStore>((set, get) => ({
@@ -147,6 +162,14 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
       console.error('Backend connection test failed:', err);
       return { success: false, message: `后端无响应或发生错误: ${err.toString()}` };
     }
+  },
+
+  updateStatsCardConfig: async (config) => {
+    set((state) => {
+      const newSettings = { ...state.settings, statsCardConfig: config };
+      invoke('save_settings', { settings: newSettings }).catch(console.error);
+      return { settings: newSettings };
+    });
   },
 }));
 

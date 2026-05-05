@@ -35,3 +35,10 @@ pub struct BreadcrumbItem {
     pub id: Option<i64>,
     pub name: String,
 }
+
+/// Folder statistics
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FolderStats {
+    pub subfolder_count: i64,
+    pub paper_count: i64,
+}

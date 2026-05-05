@@ -67,35 +67,115 @@ pub fn get_today_stats(conn: &DbConnection) -> Result<(i64, i64, i64, i64), Stri
 fn get_reading_stats(conn: &DbConnection, start_date: &str, end_date: &str) -> Result<ReadingStats, String> {
     let today = chrono::Local::now().format("%Y-%m-%d").to_string();
 
-    // Today's count (deduplicated: unique articles today)
-    let today_count: i64 = conn.query_row(
-        "SELECT COUNT(DISTINCT article_id) FROM user_action_logs WHERE DATE(created_at) = ?",
+    // Today's view count (view_abstract action, deduplicated)
+    let today_view_count: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM (
+            SELECT DISTINCT article_id, DATE(created_at) as date
+            FROM user_action_logs
+            WHERE action_type = 'view_abstract' AND DATE(created_at) = ?
+        )",
+        params![today],
+        |row| row.get(0)
+    ).map_err(|e| format!("查询今日浏览数失败: {}", e))?;
+
+    // Today's read count (download action, deduplicated)
+    let today_read_count: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM (
+            SELECT DISTINCT article_id, DATE(created_at) as date
+            FROM user_action_logs
+            WHERE action_type = 'download' AND DATE(created_at) = ?
+        )",
         params![today],
         |row| row.get(0)
     ).map_err(|e| format!("查询今日阅读数失败: {}", e))?;
 
-    // Week count (deduplicated: unique articles in last 7 days, each day counted separately)
-    // We count unique (article_id, date) pairs
-    let week_count: i64 = conn.query_row(
+    // Last 7 days view count (deduplicated)
+    let week_view_count: i64 = conn.query_row(
         "SELECT COUNT(*) FROM (
             SELECT DISTINCT article_id, DATE(created_at) as date
             FROM user_action_logs
-            WHERE created_at >= DATE('now', '-7 days')
+            WHERE action_type = 'view_abstract' AND created_at >= DATE('now', '-7 days')
         )",
         [],
         |row| row.get(0)
-    ).map_err(|e| format!("查询本周阅读数失败: {}", e))?;
+    ).map_err(|e| format!("查询近7天浏览数失败: {}", e))?;
 
-    // Month count (deduplicated: unique (article_id, date) pairs in date range)
-    let month_count: i64 = conn.query_row(
+    // Last 7 days read count (deduplicated)
+    let week_read_count: i64 = conn.query_row(
         "SELECT COUNT(*) FROM (
             SELECT DISTINCT article_id, DATE(created_at) as date
             FROM user_action_logs
-            WHERE created_at >= ? AND created_at <= ?
+            WHERE action_type = 'download' AND created_at >= DATE('now', '-7 days')
+        )",
+        [],
+        |row| row.get(0)
+    ).map_err(|e| format!("查询近7天阅读数失败: {}", e))?;
+
+    // Last 30 days view count (deduplicated)
+    let days_30_view_count: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM (
+            SELECT DISTINCT article_id, DATE(created_at) as date
+            FROM user_action_logs
+            WHERE action_type = 'view_abstract' AND created_at >= DATE('now', '-30 days')
+        )",
+        [],
+        |row| row.get(0)
+    ).map_err(|e| format!("查询近30天浏览数失败: {}", e))?;
+
+    // Last 30 days read count (deduplicated)
+    let days_30_read_count: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM (
+            SELECT DISTINCT article_id, DATE(created_at) as date
+            FROM user_action_logs
+            WHERE action_type = 'download' AND created_at >= DATE('now', '-30 days')
+        )",
+        [],
+        |row| row.get(0)
+    ).map_err(|e| format!("查询近30天阅读数失败: {}", e))?;
+
+    // This month's view count (calendar month, deduplicated)
+    let month_view_count: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM (
+            SELECT DISTINCT article_id, DATE(created_at) as date
+            FROM user_action_logs
+            WHERE action_type = 'view_abstract' AND created_at >= ? AND created_at <= ?
+        )",
+        params![format!("{} 00:00:00", start_date), format!("{} 23:59:59", end_date)],
+        |row| row.get(0)
+    ).map_err(|e| format!("查询本月浏览数失败: {}", e))?;
+
+    // This month's read count (calendar month, deduplicated)
+    let month_read_count: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM (
+            SELECT DISTINCT article_id, DATE(created_at) as date
+            FROM user_action_logs
+            WHERE action_type = 'download' AND created_at >= ? AND created_at <= ?
         )",
         params![format!("{} 00:00:00", start_date), format!("{} 23:59:59", end_date)],
         |row| row.get(0)
     ).map_err(|e| format!("查询本月阅读数失败: {}", e))?;
+
+    // Last 7 days favorites (from user_action_logs)
+    let week_favorites: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM (
+            SELECT DISTINCT article_id, DATE(created_at) as date
+            FROM user_action_logs
+            WHERE action_type = 'favorite' AND created_at >= DATE('now', '-7 days')
+        )",
+        [],
+        |row| row.get(0)
+    ).map_err(|e| format!("查询近7天收藏数失败: {}", e))?;
+
+    // Last 30 days favorites (from user_action_logs)
+    let days_30_favorites: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM (
+            SELECT DISTINCT article_id, DATE(created_at) as date
+            FROM user_action_logs
+            WHERE action_type = 'favorite' AND created_at >= DATE('now', '-30 days')
+        )",
+        [],
+        |row| row.get(0)
+    ).map_err(|e| format!("查询近30天收藏数失败: {}", e))?;
 
     // Total favorites (from favorite_papers table)
     let total_favorites: i64 = conn.query_row(
@@ -104,6 +184,20 @@ fn get_reading_stats(conn: &DbConnection, start_date: &str, end_date: &str) -> R
         |row| row.get(0)
     ).map_err(|e| format!("查询收藏总数失败: {}", e))?;
 
+    // Last 7 days chats
+    let week_chats: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM chat_sessions WHERE created_at >= DATE('now', '-7 days')",
+        [],
+        |row| row.get(0)
+    ).map_err(|e| format!("查询近7天对话数失败: {}", e))?;
+
+    // Last 30 days chats
+    let days_30_chats: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM chat_sessions WHERE created_at >= DATE('now', '-30 days')",
+        [],
+        |row| row.get(0)
+    ).map_err(|e| format!("查询近30天对话数失败: {}", e))?;
+
     // Total chats
     let total_chats: i64 = conn.query_row(
         "SELECT COUNT(*) FROM chat_sessions",
@@ -111,7 +205,7 @@ fn get_reading_stats(conn: &DbConnection, start_date: &str, end_date: &str) -> R
         |row| row.get(0)
     ).map_err(|e| format!("查询对话总数失败: {}", e))?;
 
-    // Calculate average daily count
+    // Calculate average daily count (for views)
     let days = chrono::NaiveDate::parse_from_str(end_date, "%Y-%m-%d")
         .map_err(|e| format!("解析日期失败: {}", e))?
         .signed_duration_since(
@@ -121,16 +215,25 @@ fn get_reading_stats(conn: &DbConnection, start_date: &str, end_date: &str) -> R
         .num_days() + 1;
 
     let avg_daily_count = if days > 0 {
-        month_count as f64 / days as f64
+        month_view_count as f64 / days as f64
     } else {
         0.0
     };
 
     Ok(ReadingStats {
-        today_count,
-        week_count,
-        month_count,
+        today_count: today_view_count,
+        week_count: week_view_count,
+        days_30_count: days_30_view_count,
+        month_count: month_view_count,
+        today_read_count,
+        week_read_count,
+        days_30_read_count: days_30_read_count,
+        month_read_count,
+        week_favorites,
+        days_30_favorites,
         total_favorites,
+        week_chats,
+        days_30_chats,
         total_chats,
         avg_daily_count,
     })
@@ -139,7 +242,7 @@ fn get_reading_stats(conn: &DbConnection, start_date: &str, end_date: &str) -> R
 /// Get hourly distribution (deduplicated: each article counted once per hour per day)
 fn get_hourly_distribution(conn: &DbConnection, start_date: &str, end_date: &str) -> Result<Vec<HourlyDistribution>, String> {
     // Deduplicate: for each hour, count unique (article_id, date) pairs in that hour
-    let sql = "SELECT strftime('%H', created_at) as hour, COUNT(*) as count
+    let sql = "SELECT hour, COUNT(*) as count
                FROM (
                    SELECT DISTINCT article_id, DATE(created_at) as date, strftime('%H', created_at) as hour
                    FROM user_action_logs
@@ -167,9 +270,7 @@ fn get_hourly_distribution(conn: &DbConnection, start_date: &str, end_date: &str
 /// Get weekly hour data (day of week x hour, deduplicated)
 fn get_weekly_hour_data(conn: &DbConnection, start_date: &str, end_date: &str) -> Result<Vec<WeeklyHourData>, String> {
     // Deduplicate: count unique (article_id, date) pairs for each day_of_week + hour
-    let sql = "SELECT strftime('%w', created_at) as day_of_week,
-                      strftime('%H', created_at) as hour,
-                      COUNT(*) as count
+    let sql = "SELECT day_of_week, hour, COUNT(*) as count
                FROM (
                    SELECT DISTINCT article_id, DATE(created_at) as date,
                           strftime('%w', created_at) as day_of_week,

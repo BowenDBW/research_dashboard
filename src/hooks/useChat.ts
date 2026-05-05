@@ -7,6 +7,7 @@ export function useChat() {
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Record<string, ChatMessage[]>>({} as Record<string, ChatMessage[]>);
   const [messagesLoading, setMessagesLoading] = useState(false);
+  const [sendingMessage, setSendingMessage] = useState(false);
 
   const fetchSessions = useCallback(async (mode?: ChatMode, limit?: number) => {
     try {
@@ -103,6 +104,36 @@ export function useChat() {
     }));
   }, []);
 
+  /// Send a message to the LLM and get response
+  const sendMessage = useCallback(async (
+    sessionId: string,
+    content: string,
+    modelId: string,
+  ): Promise<void> => {
+    setSendingMessage(true);
+    try {
+      // Call backend to send message (backend saves both user and assistant messages)
+      await invoke('chat_send_message', {
+        sessionId: parseInt(sessionId),
+        content,
+        modelId,
+      });
+      // Refresh messages from backend after sending
+      const response = await invoke<ChatMessage[]>('chat_get_messages', {
+        sessionId: parseInt(sessionId),
+      });
+      setMessages((prev: Record<string, ChatMessage[]>) => ({
+        ...prev,
+        [sessionId]: response,
+      }));
+    } catch (error) {
+      console.error('Failed to send message:', error);
+      throw error;
+    } finally {
+      setSendingMessage(false);
+    }
+  }, []);
+
   const getCurrentMessages = useCallback(() => {
     return currentSessionId ? messages[currentSessionId] || [] : [];
   }, [currentSessionId, messages]);
@@ -112,12 +143,14 @@ export function useChat() {
     currentSessionId,
     messages,
     messagesLoading,
+    sendingMessage,
     fetchSessions,
     createSession,
     switchSession,
     deleteSession,
     fetchMessages,
     addMessage,
+    sendMessage,
     getCurrentMessages,
   };
 }

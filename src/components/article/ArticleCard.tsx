@@ -9,9 +9,10 @@ import { useHistory } from '../../hooks';
 
 interface ArticleCardProps {
   article: Article;
+  onArticleUpdated?: (article: Article) => void;
 }
 
-export const ArticleCard = ({ article }: ArticleCardProps) => {
+export const ArticleCard = ({ article, onArticleUpdated }: ArticleCardProps) => {
   const navigate = useNavigate();
   const { t } = useTranslation();
   const { logAction } = useHistory();
@@ -165,7 +166,7 @@ export const ArticleCard = ({ article }: ArticleCardProps) => {
               <Chip key={domain} label={domain} size="small" variant="outlined" sx={{ height: 20, fontSize: '0.65rem' }} />
             ))}
           </Box>
-          <ArticleActions article={article} isFavorited={article.isFavorited} />
+          <ArticleActions article={article} isFavorited={article.isFavorited} onArticleUpdated={onArticleUpdated} />
         </Box>
       </CardContent>
     </Card>

@@ -4,7 +4,7 @@
 use crate::dao::{DbConnection};
 use crate::dao::favorites::*;
 use crate::dao::papers::get_paper_by_id;
-use crate::models::{FavoriteFolder, FavoritePaper, BreadcrumbItem, FrontendFavoriteFolder, FrontendFavoritePaper, FrontendBreadcrumbItem, FrontendFolderContents, FrontendArticle};
+use crate::models::{FavoriteFolder, FavoritePaper, BreadcrumbItem, FrontendFavoriteFolder, FrontendFavoritePaper, FrontendBreadcrumbItem, FrontendFolderContents, FrontendArticle, FolderStats};
 
 /// Convert database FavoriteFolder to frontend format
 impl From<FavoriteFolder> for FrontendFavoriteFolder {
@@ -91,4 +91,9 @@ pub fn move_favorite_paper(conn: &DbConnection, article_id: i64, new_folder_id: 
 pub fn get_folder_path_list(conn: &DbConnection, folder_id: Option<i64>) -> Result<Vec<FrontendBreadcrumbItem>, String> {
     let path = get_folder_path(conn, folder_id)?;
     Ok(path.into_iter().map(|p| p.into()).collect())
+}
+
+/// Get folder statistics
+pub fn get_folder_stats_service(conn: &DbConnection, folder_id: i64) -> Result<FolderStats, String> {
+    get_folder_stats(conn, folder_id)
 }

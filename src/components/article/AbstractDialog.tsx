@@ -14,7 +14,6 @@ import {
   ListItemIcon,
   ListItemText,
   TextField,
-  Collapse,
   Snackbar,
   Alert,
   Chip,
@@ -24,6 +23,8 @@ import {
   Select,
   MenuItem,
   CircularProgress,
+  Breadcrumbs,
+  Link,
 } from '@mui/material';
 import {
   Close as CloseIcon,
@@ -33,32 +34,25 @@ import {
   Bookmark as BookmarkIcon,
   BookmarkBorder as BookmarkBorderIcon,
   Folder as FolderIcon,
-  ExpandLess as ExpandLessIcon,
-  ExpandMore as ExpandMoreIcon,
   Edit as EditIcon,
   Delete as DeleteIcon,
+  ArrowUpward as ArrowUpwardIcon,
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { invoke } from '@tauri-apps/api/core';
-import { Article, FavoriteItem, VenueRanking } from '../../types';
+import { Article, VenueRanking } from '../../types';
 import { useFavorites } from '../../hooks';
 import { useChat } from '../../hooks';
 import { useHistory } from '../../hooks';
 import { PdfViewerDialog } from './PdfViewerDialog';
 import { openExternalUrl } from '../../utils/url';
 
-interface FolderItem {
-  id: string | null;
-  name: string;
-  children?: FolderItem[];
-}
-
 interface VenueSearchResult {
-  venue_id: number;
+  venueId: number;
   name: string;
   abbreviation: string | null;
-  venue_type: string | null;
+  venueType: string | null;
   issn: string | null;
   eissn: string | null;
   publisher: string | null;
@@ -72,6 +66,7 @@ interface AbstractDialogProps {
   onClose: () => void;
   onFavoriteChange?: (isFavorited: boolean) => void;
   onArticleDeleted?: () => void;
+  onArticleUpdated?: (article: Article) => void;
   hideActions?: boolean;
 }
 
@@ -82,6 +77,7 @@ export const AbstractDialog = ({
   onClose,
   onFavoriteChange,
   onArticleDeleted,
+  onArticleUpdated,
   hideActions = false,
 }: AbstractDialogProps) => {
   const navigate = useNavigate();
@@ -95,20 +91,26 @@ export const AbstractDialog = ({
     setLocalFavorited(isFavorited);
   }, [isFavorited]);
 
+  // 本地article状态，用于即时显示更新
+  const [localArticle, setLocalArticle] = useState<Article | null>(null);
+  useEffect(() => {
+    setLocalArticle(article);
+  }, [article]);
+
   // 记录打开摘要页面
   useEffect(() => {
-    if (open && article) {
-      logAction(article.id, 'view_abstract');
+    if (open && localArticle) {
+      logAction(localArticle.id, 'view_abstract');
     }
-  }, [open, article?.id, logAction]);
+  }, [open, localArticle?.id, logAction]);
 
   const [selectFolderDialogOpen, setSelectFolderDialogOpen] = useState(false);
   const [unfavoriteConfirmOpen, setUnfavoriteConfirmOpen] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
-  const [folders, setFolders] = useState<FolderItem[]>([]);
-  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
   const [newFolderName, setNewFolderName] = useState('');
   const [showNewFolderInput, setShowNewFolderInput] = useState(false);
+  const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
+  const [folderPath, setFolderPath] = useState<{ id: string | null; name: string }[]>([{ id: null, name: t('article.rootFolder') }]);
   const [snackbarOpen, setSnackbarOpen] = useState(false);
   const [snackbarMessage, setSnackbarMessage] = useState('');
   const [snackbarSeverity, setSnackbarSeverity] = useState<'success' | 'error'>('success');
@@ -139,19 +141,10 @@ export const AbstractDialog = ({
   const { items, createFolder, addFavorite, removeFavorite } = useFavorites();
   const { createSession } = useChat();
 
-  // 获取所有文件夹
-  useEffect(() => {
-    const buildFolderTree = (folderItems: FavoriteItem[], parentId: string | null = null): FolderItem[] => {
-      return folderItems
-        .filter(item => item.type === 'folder' && item.parentId === parentId)
-        .map(item => ({
-          id: item.id,
-          name: item.name,
-          children: item.children ? buildFolderTree(item.children, item.id) : [],
-        }));
-    };
-    setFolders(buildFolderTree(items));
-  }, [items]);
+  // 获取当前文件夹下的子文件夹
+  const currentSubFolders = items
+    .filter(item => item.type === 'folder' && item.parentId === currentFolderId)
+    .map(item => ({ id: item.id, name: item.name }));
 
   // Search venues
   const handleSearchVenue = async (query: string) => {
@@ -163,7 +156,7 @@ export const AbstractDialog = ({
     setSearchingVenue(true);
     try {
       const results = await invoke<VenueSearchResult[]>('papers_search_venue', {
-        query: query.trim(),
+        name: query.trim(),
         limit: 20,
       });
       setVenueOptions(results);
@@ -214,32 +207,32 @@ export const AbstractDialog = ({
     return () => clearTimeout(timer);
   }, [manualVenuePublisher, matchedVenue, editInfoDialogOpen]);
 
-  if (!article) return null;
+  if (!localArticle) return null;
 
   const handleSource = () => {
-    if (!article) return;
+    if (!localArticle) return;
     // 如果刚打开摘要页面，删除view_abstract记录
-    deleteRecentAction(article.id, 'view_abstract');
-    logAction(article.id, 'view_source');
+    deleteRecentAction(localArticle.id, 'view_abstract');
+    logAction(localArticle.id, 'view_source');
 
-    const hasVenueInfo = article.venueId && article.venueId > 0;
-    if (hasVenueInfo && article.url) {
-      openExternalUrl(article.url);
-    } else if (!hasVenueInfo && article.preprintNumber) {
-      openExternalUrl(`https://arxiv.org/abs/${article.preprintNumber}`);
+    const hasVenueInfo = localArticle.venueId && localArticle.venueId > 0;
+    if (hasVenueInfo && localArticle.url) {
+      openExternalUrl(localArticle.url);
+    } else if (!hasVenueInfo && localArticle.preprintNumber) {
+      openExternalUrl(`https://arxiv.org/abs/${localArticle.preprintNumber}`);
     }
   };
 
   const handlePreviewPdf = () => {
-    if (!article) return;
+    if (!localArticle) return;
     // 如果刚打开摘要页面，删除view_abstract记录
-    deleteRecentAction(article.id, 'view_abstract');
-    logAction(article.id, 'download');
+    deleteRecentAction(localArticle.id, 'view_abstract');
+    logAction(localArticle.id, 'download');
     setPdfViewerOpen(true);
   };
 
   const handleAskAI = () => {
-    createSession('chapter_summary', { articleId: article.id, articleTitle: article.title });
+    createSession('chapter_summary', { articleId: localArticle!.id, articleTitle: localArticle!.title });
     navigate('/');
     onClose();
   };
@@ -248,17 +241,20 @@ export const AbstractDialog = ({
     if (localFavorited) {
       setUnfavoriteConfirmOpen(true);
     } else {
+      // Reset to root folder when opening dialog
+      setCurrentFolderId(null);
+      setFolderPath([{ id: null, name: t('article.rootFolder') }]);
       setSelectFolderDialogOpen(true);
     }
   };
 
-  const handleSelectFolder = async (folderId: string | null) => {
-    if (!article) return;
+  const handleSelectFolder = () => {
+    if (!localArticle) return;
     // 如果刚打开摘要页面，删除view_abstract记录
-    deleteRecentAction(article.id, 'view_abstract');
-    logAction(article.id, 'favorite');
+    deleteRecentAction(localArticle.id, 'view_abstract');
+    logAction(localArticle.id, 'favorite');
 
-    await addFavorite(article, folderId);
+    addFavorite(localArticle, currentFolderId);
     setLocalFavorited(true);
     onFavoriteChange?.(true);
     setSnackbarMessage(t('article.addToFavorites'));
@@ -267,10 +263,20 @@ export const AbstractDialog = ({
     setSelectFolderDialogOpen(false);
   };
 
+  const handleNavigateToFolder = (folderId: string, folderName: string) => {
+    setCurrentFolderId(folderId);
+    setFolderPath(prev => [...prev, { id: folderId, name: folderName }]);
+  };
+
+  const handleBreadcrumbClick = (folderId: string | null, index: number) => {
+    setCurrentFolderId(folderId);
+    setFolderPath(prev => prev.slice(0, index + 1));
+  };
+
   const handleConfirmUnfavorite = async () => {
-    if (!article) return;
+    if (!localArticle) return;
     try {
-      await removeFavorite(article.id);
+      await removeFavorite(localArticle.id);
       setLocalFavorited(false);
       onFavoriteChange?.(false);
       setSnackbarMessage(t('article.removedFromFavorites'));
@@ -287,86 +293,46 @@ export const AbstractDialog = ({
 
   const handleCreateNewFolder = async () => {
     if (newFolderName.trim()) {
-      await createFolder(newFolderName);
+      const newFolder = await createFolder(newFolderName, currentFolderId);
       setNewFolderName('');
       setShowNewFolderInput(false);
-    }
-  };
-
-  const toggleFolderExpand = (folderId: string) => {
-    setExpandedFolders(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(folderId)) {
-        newSet.delete(folderId);
-      } else {
-        newSet.add(folderId);
+      // 进入新创建的文件夹
+      if (newFolder) {
+        handleNavigateToFolder(newFolder, newFolderName);
       }
-      return newSet;
-    });
-  };
-
-  const renderFolderTree = (folders: FolderItem[], depth = 0) => {
-    return folders.map(folder => (
-      <Box key={folder.id}>
-        <ListItemButton
-          sx={{ pl: 2 + depth * 2 }}
-          onClick={() => handleSelectFolder(folder.id)}
-        >
-          <ListItemIcon sx={{ minWidth: 36 }}>
-            <FolderIcon sx={{ color: '#FFA726' }} />
-          </ListItemIcon>
-          <ListItemText primary={folder.name} />
-          {folder.children && folder.children.length > 0 && (
-            <IconButton
-              size="small"
-              onClick={(e) => {
-                e.stopPropagation();
-                toggleFolderExpand(folder.id!);
-              }}
-              sx={{ p: 0.5 }}
-            >
-              {expandedFolders.has(folder.id!) ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
-            </IconButton>
-          )}
-        </ListItemButton>
-        {folder.children && folder.children.length > 0 && (
-          <Collapse in={expandedFolders.has(folder.id!)}>
-            {renderFolderTree(folder.children, depth + 1)}
-          </Collapse>
-        )}
-      </Box>
-    ));
+    }
   };
 
   // 编辑信息对话框打开
   const handleOpenEditInfo = () => {
+    if (!localArticle) return;
     // 初始化venue状态
-    if (hasVenueInfo && article.venueName) {
-      setVenueInputName(article.venueName);
+    if (hasVenueInfo && localArticle.venueName) {
+      setVenueInputName(localArticle.venueName);
     } else {
       setVenueInputName('');
     }
     setMatchedVenue(null);
     setVenueOptions([]);
-    setManualVenueAbbreviation(article.venueAbbreviation || '');
-    setManualVenueType((article.venueType as 'journal' | 'conference') || '');
+    setManualVenueAbbreviation(localArticle.venueAbbreviation || '');
+    setManualVenueType((localArticle.venueType as 'journal' | 'conference') || '');
     setManualVenueIssn('');
     setManualVenuePublisher('');
     // 初始化arxiv状态
-    setArxivInput(article.preprintNumber || '');
+    setArxivInput(localArticle.preprintNumber || '');
     // 初始化publication link状态
-    setPublicationLinkInput(article.url || '');
+    setPublicationLinkInput(localArticle.url || '');
     setEditInfoDialogOpen(true);
   };
 
   // 导入arxiv信息（覆盖文章基本信息）
   const handleImportArxiv = async () => {
-    if (!arxivInput.trim()) return;
+    if (!arxivInput.trim() || !localArticle) return;
     setImportingArxiv(true);
     try {
       // 调用后端导入arxiv信息，覆盖文章基本信息
       await invoke('papers_import_arxiv_info', {
-        articleId: parseInt(article.id),
+        articleId: parseInt(localArticle.id),
         arxivId: arxivInput.trim(),
       });
       setSnackbarMessage(t('article.arxivImportSuccess'));
@@ -386,16 +352,18 @@ export const AbstractDialog = ({
 
   // 保存编辑信息
   const handleSaveInfo = async () => {
+    if (!localArticle) return;
     setSavingInfo(true);
     try {
       // 1. 保存venue信息
       if (matchedVenue) {
         await invoke('papers_update_venue', {
-          articleId: parseInt(article.id),
-          venueId: matchedVenue.venue_id,
+          articleId: parseInt(localArticle.id),
+          venueId: matchedVenue.venueId,
         });
       } else if (venueInputName.trim()) {
-        const result = await invoke<{ venue_id: number }>('papers_create_venue_full', {
+        // 用户输入了venue名称但没有从下拉选择，创建新venue
+        const result = await invoke<{ venueId: number }>('papers_create_venue_full', {
           name: venueInputName.trim(),
           abbreviation: manualVenueAbbreviation.trim() || null,
           venueType: manualVenueType || null,
@@ -403,23 +371,32 @@ export const AbstractDialog = ({
           publisher: manualVenuePublisher.trim() || null,
         });
         await invoke('papers_update_venue', {
-          articleId: parseInt(article.id),
-          venueId: result.venue_id,
+          articleId: parseInt(localArticle.id),
+          venueId: result.venueId,
         });
       } else if (!venueInputName.trim() && hasVenueInfo) {
         // 清空venue信息
         await invoke('papers_update_venue', {
-          articleId: parseInt(article.id),
+          articleId: parseInt(localArticle.id),
           venueId: null,
         });
       }
 
       // 2. 保存publication link
-      if (publicationLinkInput.trim() !== article.url) {
+      if (publicationLinkInput.trim() !== localArticle.url) {
         await invoke('papers_update_publication_link', {
-          articleId: parseInt(article.id),
+          articleId: parseInt(localArticle.id),
           publicationLink: publicationLinkInput.trim() || null,
         });
+      }
+
+      // 3. 获取最新的文章数据并更新本地状态
+      const updatedArticle = await invoke<Article>('paper_detail', {
+        articleId: parseInt(localArticle.id),
+      });
+      setLocalArticle(updatedArticle);
+      if (onArticleUpdated) {
+        onArticleUpdated(updatedArticle);
       }
 
       setSnackbarMessage(t('article.editInfo') + ' - ' + t('common.success'));
@@ -438,9 +415,10 @@ export const AbstractDialog = ({
 
   // Delete handlers
   const handleDeleteArticle = async () => {
+    if (!localArticle) return;
     try {
       await invoke('papers_delete', {
-        articleId: parseInt(article.id),
+        articleId: parseInt(localArticle.id),
       });
       setSnackbarMessage(t('article.deleteSuccess'));
       setSnackbarSeverity('success');
@@ -491,7 +469,7 @@ export const AbstractDialog = ({
   };
 
   // Check if article has venue info (venue_id > 0)
-  const hasVenueInfo = article.venueId && article.venueId > 0;
+  const hasVenueInfo = localArticle?.venueId && localArticle.venueId > 0;
 
   return (
     <>
@@ -506,7 +484,7 @@ export const AbstractDialog = ({
           <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 1, pr: 4 }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flex: 1, flexWrap: 'wrap' }}>
               <Typography variant="h6" sx={{ fontWeight: 600 }}>
-                {article.title}
+                {localArticle!.title}
               </Typography>
               <Tooltip title={t('article.aiSummary')} arrow>
                 <IconButton size="small" onClick={handleAskAI} color="secondary" sx={{ p: 0.5 }}>
@@ -523,40 +501,33 @@ export const AbstractDialog = ({
             <CloseIcon />
           </IconButton>
         </DialogTitle>
-        <DialogContent dividers sx={{ position: 'relative' }}>
-          {/* 编辑信息按钮 - 右上角 */}
-          <Button
-            size="small"
-            startIcon={<EditIcon />}
-            onClick={handleOpenEditInfo}
-            sx={{ position: 'absolute', right: 16, top: 16 }}
-          >
-            {t('article.editInfo')}
-          </Button>
-
+        <DialogContent dividers>
+          {/* 作者列表 */}
           <Typography variant="subtitle2" gutterBottom>
-            {t('article.authors')}: {article.authors.join(', ')}
+            {t('article.authors')}: {localArticle!.authors.join(', ')}
           </Typography>
-          {/* Meta info row - venue info or arXiv */}
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1, flexWrap: 'wrap' }}>
-            {/* Source chip - clickable if has url */}
-            <Chip
-              label={article.source}
-              size="small"
-              onClick={article.url ? handleSource : undefined}
-              icon={article.url ? <OpenInNewIcon sx={{ fontSize: 14 }} /> : undefined}
-              sx={{ cursor: article.url ? 'pointer' : 'default' }}
-            />
-            {/* Venue type */}
-            {hasVenueInfo && article.venueType && (
+
+          {/* Meta info row - venue info or arXiv + 编辑按钮 */}
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, mb: 1, flexWrap: 'wrap' }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+              {/* Source chip - clickable if has url */}
               <Chip
-                label={article.venueType === 'journal' ? t('article.journal') : t('article.conference')}
+                label={localArticle!.source}
                 size="small"
-                variant="outlined"
+                onClick={localArticle!.url ? handleSource : undefined}
+                icon={localArticle!.url ? <OpenInNewIcon sx={{ fontSize: 14 }} /> : undefined}
+                sx={{ cursor: localArticle!.url ? 'pointer' : 'default' }}
               />
-            )}
+              {/* Venue type */}
+              {hasVenueInfo && localArticle!.venueType && (
+                <Chip
+                  label={localArticle!.venueType === 'journal' ? t('article.journal') : t('article.conference')}
+                  size="small"
+                  variant="outlined"
+                />
+              )}
             {/* Rankings */}
-            {hasVenueInfo && article.rankings && article.rankings.map((r) => (
+            {hasVenueInfo && localArticle!.rankings && localArticle!.rankings.map((r) => (
               <Chip
                 key={r.id}
                 label={formatRankingChip(r)}
@@ -566,14 +537,23 @@ export const AbstractDialog = ({
             ))}
             {/* Publish date */}
             <Typography variant="body2" color="text.secondary">
-              {t('article.publishedDate')}: {article.publishDate}
+              {t('article.publishedDate')}: {localArticle!.publishDate}
             </Typography>
+            </Box>
+            {/* 编辑信息按钮 */}
+            <Button
+              size="small"
+              startIcon={<EditIcon />}
+              onClick={handleOpenEditInfo}
+            >
+              {t('article.editInfo')}
+            </Button>
           </Box>
 
           <Typography variant="h6" sx={{ mt: 3, mb: 1 }}>
             {t('article.abstract')}
           </Typography>
-          <Typography variant="body1">{article.abstract}</Typography>
+          <Typography variant="body1">{localArticle!.abstract}</Typography>
         </DialogContent>
         {!hideActions && (
           <DialogActions sx={{ px: 3, py: 2, justifyContent: 'space-between' }}>
@@ -605,14 +585,46 @@ export const AbstractDialog = ({
       <Dialog open={selectFolderDialogOpen} onClose={() => setSelectFolderDialogOpen(false)} maxWidth="xs" fullWidth>
         <DialogTitle>{t('article.selectFolder')}</DialogTitle>
         <DialogContent>
-          <List sx={{ pt: 1 }}>
-            <ListItemButton onClick={() => handleSelectFolder(null)}>
+          {/* Breadcrumb navigation */}
+          <Breadcrumbs sx={{ mb: 2 }}>
+            {folderPath.map((node, index) => (
+              <Link
+                key={node.id || 'root'}
+                component="button"
+                variant="body2"
+                onClick={() => handleBreadcrumbClick(node.id, index)}
+                sx={{ cursor: 'pointer' }}
+              >
+                {node.name}
+              </Link>
+            ))}
+          </Breadcrumbs>
+
+          {/* Navigate to parent button */}
+          {currentFolderId && (
+            <ListItemButton onClick={() => handleBreadcrumbClick(folderPath[folderPath.length - 2]?.id, folderPath.length - 2)}>
               <ListItemIcon sx={{ minWidth: 36 }}>
-                <FolderIcon sx={{ color: '#FFA726' }} />
+                <ArrowUpwardIcon sx={{ color: 'text.secondary' }} />
               </ListItemIcon>
-              <ListItemText primary={t('article.rootFolder')} />
+              <ListItemText primary={t('article.parentFolder')} />
             </ListItemButton>
-            {renderFolderTree(folders)}
+          )}
+
+          {/* Subfolders list */}
+          <List>
+            {currentSubFolders.map(folder => (
+              <ListItemButton key={folder.id} onClick={() => handleNavigateToFolder(folder.id, folder.name)}>
+                <ListItemIcon sx={{ minWidth: 36 }}>
+                  <FolderIcon sx={{ color: '#FFA726' }} />
+                </ListItemIcon>
+                <ListItemText primary={folder.name} />
+              </ListItemButton>
+            ))}
+            {currentSubFolders.length === 0 && !currentFolderId && (
+              <Typography color="text.secondary" sx={{ py: 2, textAlign: 'center' }}>
+                {t('favorites.emptyFolder')}
+              </Typography>
+            )}
           </List>
 
           {/* 新建文件夹 */}
@@ -643,6 +655,9 @@ export const AbstractDialog = ({
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setSelectFolderDialogOpen(false)}>{t('common.cancel')}</Button>
+          <Button variant="contained" onClick={handleSelectFolder}>
+            {t('article.confirmSelect')}
+          </Button>
         </DialogActions>
       </Dialog>
 
@@ -680,7 +695,7 @@ export const AbstractDialog = ({
         <DialogContent>
           <Box sx={{ mt: 2 }}>
             {/* Arxiv补录section - 只有当没有preprintNumber时显示 */}
-            {!article.preprintNumber && (
+            {!localArticle?.preprintNumber && (
               <Box sx={{ mb: 3, p: 2, border: 1, borderColor: 'divider', borderRadius: 1 }}>
                 <Typography variant="subtitle2" sx={{ mb: 1 }}>
                   {t('article.arxivSection')}
@@ -734,20 +749,25 @@ export const AbstractDialog = ({
                   setVenueInputName(newValue);
                 } else {
                   setMatchedVenue(newValue);
+                  // 同步更新venueInputName为显示格式，避免onInputChange误清空
                   if (newValue) {
-                    setVenueInputName(newValue.name);
+                    setVenueInputName(newValue.abbreviation ? `${newValue.abbreviation} (${newValue.name})` : newValue.name);
                   }
                 }
               }}
               inputValue={venueInputName}
-              onInputChange={(_, newInputValue) => {
-                setVenueInputName(newInputValue);
-                if (matchedVenue && newInputValue !== matchedVenue.name) {
-                  setMatchedVenue(null);
+              onInputChange={(_, newInputValue, reason) => {
+                // 只有用户输入时才更新，选择时不处理（onChange已处理）
+                if (reason === 'input') {
+                  setVenueInputName(newInputValue);
+                  // 用户修改输入，清空matchedVenue
+                  if (matchedVenue) {
+                    setMatchedVenue(null);
+                  }
                 }
               }}
               options={venueOptions}
-              getOptionLabel={(option) => typeof option === 'string' ? option : option.name}
+              getOptionLabel={(option) => typeof option === 'string' ? option : (option.abbreviation ? `${option.abbreviation} (${option.name})` : option.name)}
               loading={searchingVenue}
               filterOptions={(x) => x}
               renderOption={(props, option) => {
@@ -757,15 +777,15 @@ export const AbstractDialog = ({
                   <li key={key} {...otherProps}>
                     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, width: '100%' }}>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <Typography variant="body2" sx={{ fontWeight: 500 }}>{option.name}</Typography>
+                        <Typography variant="body2" sx={{ fontWeight: 500 }}>{option.abbreviation || option.name}</Typography>
                         {option.abbreviation && (
                           <Typography variant="caption" color="text.secondary">
-                            ({option.abbreviation})
+                            ({option.name})
                           </Typography>
                         )}
-                        {option.venue_type && (
+                        {option.venueType && (
                           <Chip
-                            label={option.venue_type === 'journal' ? t('article.journal') : t('article.conference')}
+                            label={option.venueType === 'journal' ? t('article.journal') : t('article.conference')}
                             size="small"
                             variant="outlined"
                           />
@@ -806,8 +826,16 @@ export const AbstractDialog = ({
               </Alert>
             )}
 
+            {/* 正式venue（有分区信息）不允许修改 */}
+            {matchedVenue && matchedVenue.rankings && matchedVenue.rankings.length > 0 && (
+              <Alert severity="info" sx={{ mt: 2, mb: 1 }}>
+                {t('article.officialVenueHint')}
+              </Alert>
+            )}
+
             <Box sx={{ mt: 2, p: 2, border: 1, borderColor: 'divider', borderRadius: 1 }}>
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                {/* 有分区信息的venue不允许修改基本信息 */}
                 <Box sx={{ display: 'flex', gap: 2 }}>
                   <TextField
                     label={t('manualAdd.abbreviation')}
@@ -815,13 +843,13 @@ export const AbstractDialog = ({
                     onChange={(e) => setManualVenueAbbreviation(e.target.value)}
                     size="small"
                     fullWidth
-                    disabled={!venueInputName.trim() || matchedVenue !== null}
+                    disabled={!venueInputName.trim() || (matchedVenue !== null && matchedVenue.rankings && matchedVenue.rankings.length > 0)}
                     placeholder={matchedVenue ? '' : t('manualAdd.abbreviationPlaceholder')}
                   />
-                  <FormControl size="small" fullWidth disabled={!venueInputName.trim() || matchedVenue !== null}>
+                  <FormControl size="small" fullWidth disabled={!venueInputName.trim() || (matchedVenue !== null && matchedVenue.rankings && matchedVenue.rankings.length > 0)}>
                     <InputLabel>{t('manualAdd.venueType')}</InputLabel>
                     <Select
-                      value={matchedVenue?.venue_type || manualVenueType}
+                      value={matchedVenue?.venueType || manualVenueType}
                       label={t('manualAdd.venueType')}
                       onChange={(e) => setManualVenueType(e.target.value as 'journal' | 'conference' | '')}
                     >
@@ -837,7 +865,7 @@ export const AbstractDialog = ({
                     onChange={(e) => setManualVenueIssn(e.target.value)}
                     size="small"
                     fullWidth
-                    disabled={!venueInputName.trim() || matchedVenue !== null}
+                    disabled={!venueInputName.trim() || (matchedVenue !== null && matchedVenue.rankings && matchedVenue.rankings.length > 0)}
                     placeholder={matchedVenue ? '' : t('manualAdd.issnPlaceholder')}
                   />
                   <Autocomplete<string, false, false, true>
@@ -847,17 +875,17 @@ export const AbstractDialog = ({
                     value={matchedVenue?.publisher || manualVenuePublisher}
                     inputValue={matchedVenue?.publisher || manualVenuePublisher}
                     onInputChange={(_, newInputValue) => {
-                      if (!matchedVenue) {
+                      if (!matchedVenue || !matchedVenue.rankings || matchedVenue.rankings.length === 0) {
                         setManualVenuePublisher(newInputValue);
                       }
                     }}
                     onChange={(_, newValue) => {
-                      if (!matchedVenue && typeof newValue === 'string') {
+                      if ((!matchedVenue || !matchedVenue.rankings || matchedVenue.rankings.length === 0) && typeof newValue === 'string') {
                         setManualVenuePublisher(newValue);
                       }
                     }}
                     options={publisherOptions}
-                    disabled={!venueInputName.trim() || matchedVenue !== null}
+                    disabled={!venueInputName.trim() || (matchedVenue !== null && matchedVenue.rankings && matchedVenue.rankings.length > 0)}
                     renderInput={(params) => (
                       <TextField
                         {...params}
@@ -923,9 +951,9 @@ export const AbstractDialog = ({
       <PdfViewerDialog
         open={pdfViewerOpen}
         onClose={() => setPdfViewerOpen(false)}
-        pdfUrl={article.pdfUrl}
-        pdfPath={article.pdfPath}
-        title={article.title}
+        pdfUrl={localArticle!.pdfUrl}
+        pdfPath={localArticle!.pdfPath}
+        title={localArticle!.title}
       />
     </>
   );

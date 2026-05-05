@@ -37,3 +37,5 @@ uuid = { version = "1", features = ["v4"] }
 # Sorting utilities
 itertools = "0.13"
 tauri-plugin-dialog = "2.7.0"
+tauri-plugin-process = "2"
+tauri-plugin-shell = "2"

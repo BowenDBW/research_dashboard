@@ -30,6 +30,12 @@ pub fn paper_from_row(row: &Row) -> Result<Paper, rusqlite::Error> {
 }
 
 /// Get paper list with filters and pagination
+/// Complex search logic:
+/// - subscribed_only: limit to subscribed categories AND (match subscribed keywords OR match subscribed authors)
+/// - domains: further filter to specific domains (from subscribed categories)
+/// - sources: filter by conference/journal
+/// - query: user search (title/abstract/author)
+/// - date range: time filter
 pub fn get_papers(conn: &DbConnection, params: &PaperQueryParams) -> Result<PaperListResponse, String> {
     let offset = (params.page - 1) * params.page_size;
 
@@ -37,46 +43,28 @@ pub fn get_papers(conn: &DbConnection, params: &PaperQueryParams) -> Result<Pape
     let mut conditions: Vec<String> = vec![];
     let mut bind_params: Vec<Box<dyn rusqlite::ToSql>> = vec![];
 
-    // Search query filter (title or author)
-    if let Some(query) = &params.query {
-        if !query.is_empty() {
-            conditions.push(
-                "(p.title LIKE ? OR EXISTS (
-                    SELECT 1 FROM paper_authors pa WHERE pa.article_id = p.article_id AND pa.author_name LIKE ?
-                ))".to_string()
-            );
-            let search_pattern = format!("%{}%", query);
-            bind_params.push(Box::new(search_pattern.clone()));
-            bind_params.push(Box::new(search_pattern));
-        }
+    // 1. Subscription filter (most complex)
+    // When subscribed_only is ON:
+    // - Paper must be in subscribed categories (AND condition)
+    // - AND (match subscribed keywords in title/abstract OR match subscribed authors)
+    if params.subscribed_only {
+        // Condition A: Paper must be in subscribed categories
+        conditions.push(
+            "EXISTS (SELECT 1 FROM paper_categories pc WHERE pc.article_id = p.article_id
+                AND EXISTS (SELECT 1 FROM subscribed_categories sc WHERE sc.category = pc.category))".to_string()
+        );
+
+        // Condition B: (match subscribed keywords OR match subscribed authors)
+        conditions.push(
+            "(EXISTS (SELECT 1 FROM subscribed_keywords sk
+                WHERE p.title LIKE '%' || sk.keyword || '%' OR p.abstract LIKE '%' || sk.keyword || '%')
+            OR EXISTS (SELECT 1 FROM paper_authors pa WHERE pa.article_id = p.article_id
+                AND EXISTS (SELECT 1 FROM subscribed_authors sa WHERE sa.author_name = pa.author_name)))".to_string()
+        );
     }
 
-    // Date range filter
-    if let Some(start_date) = &params.start_date {
-        conditions.push("p.publication_date >= ?".to_string());
-        bind_params.push(Box::new(start_date.clone()));
-    }
-    if let Some(end_date) = &params.end_date {
-        conditions.push("p.publication_date <= ?".to_string());
-        bind_params.push(Box::new(end_date.clone()));
-    }
-
-    // Source filter (venue name or abbreviation)
-    if let Some(sources) = &params.sources {
-        if !sources.is_empty() {
-            let placeholders: Vec<String> = sources.iter().map(|_| "?".to_string()).collect();
-            conditions.push(format!(
-                "(v.name IN ({}) OR v.abbreviation IN ({}) OR p.venue_id IS NULL)",
-                placeholders.join(","), placeholders.join(",")
-            ));
-            for source in sources {
-                bind_params.push(Box::new(source.clone()));
-                bind_params.push(Box::new(source.clone()));
-            }
-        }
-    }
-
-    // Domain filter
+    // 2. Domain filter (arxiv switch - filter to specific domains)
+    // Works independently or in combination with subscribed_only
     if let Some(domains) = &params.domains {
         if !domains.is_empty() {
             let placeholders: Vec<String> = domains.iter().map(|_| "?".to_string()).collect();
@@ -90,16 +78,44 @@ pub fn get_papers(conn: &DbConnection, params: &PaperQueryParams) -> Result<Pape
         }
     }
 
-    // Subscription filter
-    if params.subscribed_only {
-        conditions.push(
-            "(EXISTS (SELECT 1 FROM paper_authors pa WHERE pa.article_id = p.article_id
-                AND EXISTS (SELECT 1 FROM subscribed_authors sa WHERE sa.author_name = pa.author_name))
-            OR EXISTS (SELECT 1 FROM paper_categories pc WHERE pc.article_id = p.article_id
-                AND EXISTS (SELECT 1 FROM subscribed_categories sc WHERE sc.category = pc.category))
-            OR EXISTS (SELECT 1 FROM subscribed_keywords sk
-                WHERE p.title LIKE '%' || sk.keyword || '%' OR p.abstract LIKE '%' || sk.keyword || '%'))".to_string()
-        );
+    // 3. User search query (title, abstract, or author)
+    if let Some(query) = &params.query {
+        if !query.is_empty() {
+            conditions.push(
+                "(p.title LIKE ? OR p.abstract LIKE ? OR EXISTS (
+                    SELECT 1 FROM paper_authors pa WHERE pa.article_id = p.article_id AND pa.author_name LIKE ?
+                ))".to_string()
+            );
+            let search_pattern = format!("%{}%", query);
+            bind_params.push(Box::new(search_pattern.clone()));
+            bind_params.push(Box::new(search_pattern.clone()));
+            bind_params.push(Box::new(search_pattern));
+        }
+    }
+
+    // 4. Date range filter
+    if let Some(start_date) = &params.start_date {
+        conditions.push("p.publication_date >= ?".to_string());
+        bind_params.push(Box::new(start_date.clone()));
+    }
+    if let Some(end_date) = &params.end_date {
+        conditions.push("p.publication_date <= ?".to_string());
+        bind_params.push(Box::new(end_date.clone()));
+    }
+
+    // 5. Source filter (venue name or abbreviation)
+    if let Some(sources) = &params.sources {
+        if !sources.is_empty() {
+            let placeholders: Vec<String> = sources.iter().map(|_| "?".to_string()).collect();
+            conditions.push(format!(
+                "(v.name IN ({}) OR v.abbreviation IN ({}) OR p.venue_id IS NULL)",
+                placeholders.join(","), placeholders.join(",")
+            ));
+            for source in sources {
+                bind_params.push(Box::new(source.clone()));
+                bind_params.push(Box::new(source.clone()));
+            }
+        }
     }
 
     let where_clause = if conditions.is_empty() {

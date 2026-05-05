@@ -1,15 +1,18 @@
 import { Box, Typography, Paper } from '@mui/material';
 import { ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
 
 interface StatsCardProps {
   icon: ReactNode;
-  label: string;
+  label: string;  // i18n key
   value: number | string;
   unit?: string;
   color?: string;
 }
 
 export const StatsCard = ({ icon, label, value, unit, color = '#2196f3' }: StatsCardProps) => {
+  const { t } = useTranslation();
+
   return (
     <Paper
       sx={{
@@ -23,7 +26,7 @@ export const StatsCard = ({ icon, label, value, unit, color = '#2196f3' }: Stats
       }}
     >
       <Typography variant="caption" color="text.secondary" noWrap>
-        {label}
+        {t(label)}
       </Typography>
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
         <Box

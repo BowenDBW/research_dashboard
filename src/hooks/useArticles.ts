@@ -9,6 +9,21 @@ interface PaperListResponse {
   pageSize: number;
 }
 
+interface VenueRanking {
+  id: number;
+  venueId: number;
+  rankingSource: string;
+  rankingCategory: string | null;
+}
+
+interface VenueSearchResult {
+  venueId: number;
+  name: string;
+  abbreviation?: string;
+  venueType?: string;
+  rankings?: VenueRanking[];
+}
+
 export function useArticles() {
   const [articles, setArticles] = useState<Article[]>([]);
   const [totalCount, setTotalCount] = useState(0);
@@ -56,6 +71,16 @@ export function useArticles() {
     }
   }, []);
 
+  const searchVenues = useCallback(async (query: string, limit = 20): Promise<VenueSearchResult[]> => {
+    if (!query || query.length < 1) return [];
+    try {
+      return await invoke<VenueSearchResult[]>('papers_search_venue', { name: query, limit });
+    } catch (error) {
+      console.error('Failed to search venues:', error);
+      return [];
+    }
+  }, []);
+
   return {
     articles,
     totalCount,
@@ -63,5 +88,6 @@ export function useArticles() {
     fetchArticles,
     fetchSources,
     fetchDomains,
+    searchVenues,
   };
 }

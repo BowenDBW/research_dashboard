@@ -52,11 +52,15 @@ pub struct PaperCategory {
 pub struct PaperQueryParams {
     pub page: i32,
     pub page_size: i32,
+    /// User search query (matches title/abstract/author)
     pub query: Option<String>,
     pub start_date: Option<String>,
     pub end_date: Option<String>,
+    /// Conference/journal filter
     pub sources: Option<Vec<String>>,
+    /// Domain filter (from subscribed categories when arxiv switch on)
     pub domains: Option<Vec<String>>,
+    /// Subscription filter: limit to subscribed categories + match subscribed keywords/authors
     pub subscribed_only: bool,
 }
 

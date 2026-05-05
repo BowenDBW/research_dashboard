@@ -100,9 +100,11 @@
     "removedFromFavorites": "Removed from favorites",
     "selectFolder": "Select Folder",
     "rootFolder": "Root",
+    "parentFolder": "Go Back",
     "newFolder": "New Folder",
     "folderName": "Folder Name",
     "create": "Create",
+    "confirmSelect": "Confirm",
     "unfavorite": "Unfavorite",
     "confirmUnfavorite": "Are you sure you want to remove this article from favorites?",
     "confirmUnfavoriteTitle": "Unfavorite",
@@ -137,7 +139,8 @@
     "arxivImportFailed": "Failed to import arXiv info",
     "publicationLink": "Article Info Page URL",
     "publicationLinkPlaceholder": "Enter article info page URL",
-    "venueSection": "Publication Info"
+    "venueSection": "Publication Info",
+    "officialVenueHint": "This venue has ranking info, basic info cannot be modified"
   },
   "articles": {
     "title": "Articles",
@@ -145,15 +148,20 @@
     "startDate": "Start Date",
     "endDate": "End Date",
     "conference": "Conference/Journal",
+    "conferencePlaceholder": "Type to search conference/journal",
+    "typeToSearch": "Type to search",
     "arxiv": "arXiv",
     "subscribed": "Subscribed",
+    "showArxiv": "Filter to specific subscribed domains",
+    "showSubscribedHint": "Articles in subscribed domains that match subscribed keywords or authors",
     "domains": "Domains",
     "noResults": "No articles found",
     "perPage": "Per Page",
-    "showArxiv": "Filter by arXiv categories",
-    "showSubscribed": "Show subscribed only",
     "itemsPerPage": "{{count}} items",
-    "domainsLabel": "Domains"
+    "domainsLabel": "Domains",
+    "journalGroup": "Journal",
+    "conferenceGroup": "Conference",
+    "otherGroup": "Other"
   },
   "history": {
     "title": "History",
@@ -206,6 +214,43 @@
     "keywordCloud": "Keyword Cloud",
     "times": "times",
     "yearSuffix": "",
+    "viewCount": "Views",
+    "readCount": "Reads",
+    "timeUnit": {
+      "day": "Today",
+      "week": "This Week",
+      "month": "This Month"
+    },
+    "editCards": "Edit Cards",
+    "addCard": "Add Card",
+    "removeCard": "Remove Card",
+    "maxCards": "Max 8 cards",
+    "maxSidebarCards": "Max 2 cards",
+    "dragToSort": "Drag to sort",
+    "alreadyAdded": "Added",
+    "categories": {
+      "views": "Views",
+      "reads": "Reads",
+      "favorites": "Favorites",
+      "chats": "Chats"
+    },
+    "cardTypes": {
+      "view_today": "Today's Views",
+      "view_week": "Weekly Views",
+      "view_30days": "30-Day Views",
+      "view_month": "Monthly Views",
+      "read_today": "Today's Reads",
+      "read_week": "Weekly Reads",
+      "read_30days": "30-Day Reads",
+      "read_month": "Monthly Reads",
+      "favorite_week": "Weekly Favorites",
+      "favorite_30days": "30-Day Favorites",
+      "favorite_total": "Total Favorites",
+      "chat_week": "Weekly Chats",
+      "chat_30days": "30-Day Chats",
+      "chat_total": "Total Chats"
+    },
+    "sidebarCards": "Sidebar Cards",
     "months": {
       "jan": "Jan",
       "feb": "Feb",
@@ -300,8 +345,12 @@
     "noSubscriptions": "No subscriptions yet",
     "settings": "Subscription Settings",
     "subscribedAuthors": "Subscribed Authors",
+    "subscribedCategories": "Subscribed Domains",
+    "selectCategories": "Select Domains",
+    "noCategories": "No subscribed domains",
     "keywordPlaceholder": "Enter keyword and press Enter to add",
-    "authorPlaceholder": "Enter author name and press Enter to add"
+    "authorPlaceholder": "Enter author name and press Enter to add",
+    "categoryPlaceholder": "Enter domain and press Enter to add"
   },
   "categorySelect": {
     "title": "Select Crawl Categories",
@@ -321,7 +370,7 @@
     "renameFolder": "Rename Folder",
     "deleteFolder": "Delete Folder",
     "cutFolder": "Cut Folder",
-    "pasteFolder": "Paste Folder",
+    "pasteFolder": "Paste",
     "properties": "Properties",
     "cut": "Cut",
     "unfavorite": "Unfavorite",

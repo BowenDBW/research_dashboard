@@ -129,7 +129,7 @@ const HomePage = () => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const initializedRef = useRef(false);
 
-  const { getCurrentMessages, addMessage, currentSessionId, sessions, createSession, switchSession } = useChat();
+  const { getCurrentMessages, addMessage, sendMessage, currentSessionId, sessions, createSession, switchSession } = useChat();
   const { settings, updateSettings } = useSettingsStore();
   const messages = getCurrentMessages();
 
@@ -234,41 +234,35 @@ const HomePage = () => {
     createSession('chapter_summary');
   };
 
-  const handleSend = () => {
+  const handleSend = async () => {
     if (!inputValue.trim() || !currentSessionId) return;
 
-    // Add user message
-    addMessage(currentSessionId, {
-      id: `msg-${Date.now()}`,
-      sessionId: currentSessionId,
-      role: 'user',
-      content: inputValue,
-      timestamp: new Date().toISOString(),
-    });
+    // Check if model is selected
+    if (!settings.selectedModelId) {
+      console.warn('No model selected');
+      return;
+    }
 
+    const userContent = inputValue.trim();
     setInputValue('');
     setIsStreaming(true);
 
-    // Mock AI response for prototype
-    setTimeout(() => {
+    try {
+      // Send message to backend (backend saves user and assistant messages)
+      // Then refresh messages list
+      await sendMessage(currentSessionId, userContent, settings.selectedModelId);
+    } catch (error) {
+      console.error('Failed to get AI response:', error);
+      // Add error message locally
       addMessage(currentSessionId, {
-        id: `msg-${Date.now() + 1}`,
+        id: `msg-error-${Date.now()}`,
         sessionId: currentSessionId,
         role: 'assistant',
-        content: getMockResponse(inputValue, activeTab),
+        content: `抱歉，发生了错误: ${error}`,
         timestamp: new Date().toISOString(),
       });
+    } finally {
       setIsStreaming(false);
-    }, 1000);
-  };
-
-  const getMockResponse = (input: string, tab: number) => {
-    if (tab === 0) {
-      return `关于"${input}"的问题，这是一个很好的话题。让我为您详细解释一下...\n\n主要要点包括：\n1. 核心概念的理解\n2. 相关应用场景\n3. 未来发展趋势`;
-    } else if (tab === 1) {
-      return `根据您的搜索条件"${input}"，我找到了以下相关论文：\n\n1. Attention Is All You Need (2017)\n2. BERT: Pre-training of Deep Bidirectional Transformers (2018)\n3. GPT-3: Language Models are Few-Shot Learners (2020)`;
-    } else {
-      return `正在对文章进行逐章总结...\n\n## 第一章：简介\n本文介绍了一个新的深度学习模型架构...\n\n## 第二章：方法论\n采用自注意力机制作为核心计算单元...`;
     }
   };
 

@@ -51,18 +51,18 @@ interface ArxivFetchResult {
 
 interface VenueRanking {
   id: number;
-  venue_id: number;
+  venueId: number;
   rankingSource: string;
   rankingCategory: string | null;
-  ranking_year: number | null;
-  category_detail: string | null;
+  rankingYear: number | null;
+  categoryDetail: string | null;
 }
 
 interface VenueSearchResult {
-  venue_id: number;
+  venueId: number;
   name: string;
   abbreviation: string | null;
-  venue_type: string | null;
+  venueType: string | null;
   issn: string | null;
   eissn: string | null;
   publisher: string | null;
@@ -246,7 +246,7 @@ export const ManualAddDialog = ({ open, onClose }: ManualAddDialogProps) => {
     setSearchingVenue(true);
     try {
       const results = await invoke<VenueSearchResult[]>('papers_search_venue', {
-        query: query.trim(),
+        name: query.trim(),
         limit: 20,
       });
       setVenueOptions(results);
@@ -346,7 +346,7 @@ export const ManualAddDialog = ({ open, onClose }: ManualAddDialogProps) => {
     let venuePubLink: string | null = null;
 
     if (matchedVenue) {
-      venueId = matchedVenue.venue_id;
+      venueId = matchedVenue.venueId;
       venueName = matchedVenue.name;
     } else if (venueInputName.trim()) {
       venueName = venueInputName.trim();
@@ -738,12 +738,12 @@ export const ManualAddDialog = ({ open, onClose }: ManualAddDialogProps) => {
               }
             }}
             options={venueOptions}
-            getOptionLabel={(option) => typeof option === 'string' ? option : option.name}
+            getOptionLabel={(option) => typeof option === 'string' ? option : (option.abbreviation ? `${option.abbreviation} (${option.name})` : option.name)}
             loading={searchingVenue}
             filterOptions={(x) => x}
             isOptionEqualToValue={(option, value) => {
               if (typeof value === 'string') return false;
-              return option.venue_id === value.venue_id;
+              return option.venueId === value.venueId;
             }}
             renderOption={(props, option) => {
               const { key, ...otherProps } = props;
@@ -752,15 +752,15 @@ export const ManualAddDialog = ({ open, onClose }: ManualAddDialogProps) => {
                 <li key={key} {...otherProps}>
                   <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, width: '100%' }}>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <Typography variant="body2" sx={{ fontWeight: 500 }}>{option.name}</Typography>
+                      <Typography variant="body2" sx={{ fontWeight: 500 }}>{option.abbreviation || option.name}</Typography>
                       {option.abbreviation && (
                         <Typography variant="caption" color="text.secondary">
-                          ({option.abbreviation})
+                          ({option.name})
                         </Typography>
                       )}
-                      {option.venue_type && (
+                      {option.venueType && (
                         <Chip
-                          label={option.venue_type === 'journal' ? t('manualAdd.journal') : t('manualAdd.conference')}
+                          label={option.venueType === 'journal' ? t('manualAdd.journal') : t('manualAdd.conference')}
                           size="small"
                           variant="outlined"
                         />
@@ -837,7 +837,7 @@ export const ManualAddDialog = ({ open, onClose }: ManualAddDialogProps) => {
                 <FormControl size="small" fullWidth disabled={!venueInputName.trim() || matchedVenue !== null}>
                   <InputLabel>{t('manualAdd.venueType')}</InputLabel>
                   <Select
-                    value={matchedVenue?.venue_type || manualVenueType}
+                    value={matchedVenue?.venueType || manualVenueType}
                     label={t('manualAdd.venueType')}
                     onChange={(e) => setManualVenueType(e.target.value as 'journal' | 'conference' | '')}
                   >

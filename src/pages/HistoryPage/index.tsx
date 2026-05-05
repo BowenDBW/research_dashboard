@@ -21,7 +21,6 @@ import { DatePicker as MuiDatePicker } from '@mui/x-date-pickers/DatePicker';
 import {
   ArrowBack as ArrowBackIcon,
   AutoAwesome as AutoAwesomeIcon,
-  FilterList as FilterListIcon,
 } from '@mui/icons-material';
 import dayjs from 'dayjs';
 import { useHistory } from '../../hooks';
@@ -36,7 +35,7 @@ const CHAT_MODES = ['chat', 'paper_search', 'chapter_summary'];
 const HistoryPage = () => {
   const navigate = useNavigate();
   const { t } = useTranslation();
-  const { records, totalCount, page, pageSize, fetchRecords, setFilters, setPage } = useHistory();
+  const { records, totalCount, page, pageSize, updateFilters, updatePage } = useHistory();
   const { sessions, messages } = useChat();
   const [startDate, setStartDate] = useState<dayjs.Dayjs | null>(dayjs().subtract(7, 'day'));
   const [endDate, setEndDate] = useState<dayjs.Dayjs | null>(dayjs());
@@ -49,30 +48,36 @@ const HistoryPage = () => {
   const [abstractDialogOpen, setAbstractDialogOpen] = useState(false);
   const [selectedArticle, setSelectedArticle] = useState<Article | null>(null);
 
-  // 获取阅读历史数据
+  // 筛选条件变化时更新 filters（会自动重置页码并获取数据）
   useEffect(() => {
     if (historyType === 'reading') {
-      setFilters({
+      updateFilters({
         dateRange: [
           startDate ? startDate.format('YYYY-MM-DD') : null,
           endDate ? endDate.format('YYYY-MM-DD') : null,
         ],
         actions: showActionFilter ? selectedActions : [],
       });
-      fetchRecords();
     }
-  }, [historyType, startDate, endDate, showActionFilter, selectedActions, page, setFilters, fetchRecords]);
+  }, [historyType, startDate, endDate, showActionFilter, selectedActions, updateFilters]);
 
   // 页面可见时刷新数据
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible' && historyType === 'reading') {
-        fetchRecords();
+        // 通过更新 filters 来触发刷新，保持当前筛选条件
+        updateFilters({
+          dateRange: [
+            startDate ? startDate.format('YYYY-MM-DD') : null,
+            endDate ? endDate.format('YYYY-MM-DD') : null,
+          ],
+          actions: showActionFilter ? selectedActions : [],
+        });
       }
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, [historyType, fetchRecords]);
+  }, [historyType, startDate, endDate, showActionFilter, selectedActions, updateFilters]);
 
   const handleHistoryTypeChange = (_: React.MouseEvent<HTMLElement>, newValue: 'reading' | 'chat' | null) => {
     if (newValue) {
@@ -93,7 +98,6 @@ const HistoryPage = () => {
       const newActions = prev.includes(action)
         ? prev.filter((a) => a !== action)
         : [...prev, action];
-      setFilters({ actions: newActions });
       return newActions;
     });
   };
@@ -102,10 +106,8 @@ const HistoryPage = () => {
     setShowActionFilter(show);
     if (show) {
       setSelectedActions([...ALL_ACTIONS]);
-      setFilters({ actions: [...ALL_ACTIONS] });
     } else {
       setSelectedActions([]);
-      setFilters({ actions: [] });
     }
   };
 
@@ -483,7 +485,7 @@ const HistoryPage = () => {
             <Pagination
               count={Math.ceil(totalCount / pageSize)}
               page={page}
-              onChange={(_, newPage) => setPage(newPage)}
+              onChange={(_, newPage) => updatePage(newPage)}
               color="primary"
             />
           </Box>

@@ -9,11 +9,25 @@ use crate::models::{StatsResponse, ReadingStats, HourlyDistribution, WeeklyHourD
 pub fn stats_to_frontend(stats: StatsResponse) -> FrontendStatsResponse {
     FrontendStatsResponse {
         reading_stats: FrontendReadingStats {
+            // View counts
             today_count: stats.reading_stats.today_count,
             week_count: stats.reading_stats.week_count,
+            days_30_count: stats.reading_stats.days_30_count,
             month_count: stats.reading_stats.month_count,
+            // Read counts
+            today_read_count: stats.reading_stats.today_read_count,
+            week_read_count: stats.reading_stats.week_read_count,
+            days_30_read_count: stats.reading_stats.days_30_read_count,
+            month_read_count: stats.reading_stats.month_read_count,
+            // Favorites
+            week_favorites: stats.reading_stats.week_favorites,
+            days_30_favorites: stats.reading_stats.days_30_favorites,
             total_favorites: stats.reading_stats.total_favorites,
+            // Chats
+            week_chats: stats.reading_stats.week_chats,
+            days_30_chats: stats.reading_stats.days_30_chats,
             total_chats: stats.reading_stats.total_chats,
+            // Average
             avg_daily_count: stats.reading_stats.avg_daily_count,
         },
         hourly_distribution: stats.hourly_distribution.into_iter().map(|h| FrontendHourlyDistribution {

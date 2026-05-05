@@ -39,7 +39,16 @@ impl CloudLlmProvider {
             max_tokens: Some(4096),
         };
 
-        let url = format!("{}/v1/chat/completions", self.endpoint);
+        // Endpoint should already include /v1 if needed
+        let url = format!("{}/chat/completions", self.endpoint);
+
+        // Debug output
+        eprintln!("[DEBUG] Cloud chat request:");
+        eprintln!("[DEBUG]   endpoint: {}", self.endpoint);
+        eprintln!("[DEBUG]   url: {}", url);
+        eprintln!("[DEBUG]   model: {}", self.model);
+        eprintln!("[DEBUG]   api_key length: {} (empty: {})", self.api_key.len(), self.api_key.is_empty());
+        eprintln!("[DEBUG]   messages count: {}", request.messages.len());
 
         let response = self.client
             .post(&url)
@@ -81,7 +90,8 @@ impl CloudLlmProvider {
             max_tokens: Some(4096),
         };
 
-        let url = format!("{}/v1/chat/completions", self.endpoint);
+        // Endpoint should already include /v1 if needed
+        let url = format!("{}/chat/completions", self.endpoint);
 
         let response = self.client
             .post(&url)

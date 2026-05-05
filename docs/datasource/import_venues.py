@@ -173,13 +173,21 @@ def main():
     ws = wb.active
 
     current_category_group = ""
+    current_venue_type = 'journal'  # 默认期刊，根据分组标题动态更新
 
     for row in ws.iter_rows(min_row=2, values_only=True):
         if not row or not row[2]:
             continue
 
-        if row[0] and isinstance(row[0], str) and '\n' in row[0]:
-            current_category_group = row[0].replace('\n', ' ').strip()
+        # 第一列包含分组标题，判断是会议还是期刊
+        if row[0] and isinstance(row[0], str):
+            group_title = row[0].replace('\n', ' ').strip()
+            current_category_group = group_title
+            # 根据标题判断类型
+            if '会议' in group_title:
+                current_venue_type = 'conference'
+            elif '期刊' in group_title:
+                current_venue_type = 'journal'
 
         category = row[1]  # A/B/C
         abbreviation = row[3]  # 刊物简称
@@ -190,7 +198,8 @@ def main():
         if not full_name:
             continue
 
-        venue_type = 'conference' if any(kw in (abbreviation or '').upper() for kw in ['CONF', 'WORKSHOP', 'SYMPOSIUM', 'CONGRESS']) else 'journal'
+        # 使用分组标题判断的类型，而不是简称关键词
+        venue_type = current_venue_type
 
         try:
             cursor.execute(

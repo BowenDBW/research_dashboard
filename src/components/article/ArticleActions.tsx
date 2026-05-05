@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import {
   Box,
   IconButton,
@@ -16,7 +16,8 @@ import {
   ListItemIcon,
   ListItemText,
   TextField,
-  Collapse,
+  Breadcrumbs,
+  Link,
 } from '@mui/material';
 import {
   Description as DescriptionIcon,
@@ -25,22 +26,15 @@ import {
   BookmarkBorder as BookmarkBorderIcon,
   Download as DownloadIcon,
   Folder as FolderIcon,
-  ExpandLess as ExpandLessIcon,
-  ExpandMore as ExpandMoreIcon,
+  ArrowUpward as ArrowUpwardIcon,
 } from '@mui/icons-material';
 import { useTranslation } from 'react-i18next';
-import { Article, FavoriteItem } from '../../types';
+import { Article } from '../../types';
 import { useFavorites } from '../../hooks';
 import { useHistory } from '../../hooks';
 import { AbstractDialog } from './AbstractDialog';
 import { PdfViewerDialog } from './PdfViewerDialog';
 import { openExternalUrl } from '../../utils/url';
-
-interface FolderItem {
-  id: string | null;
-  name: string;
-  children?: FolderItem[];
-}
 
 interface ArticleActionsProps {
   article: Article;
@@ -48,6 +42,7 @@ interface ArticleActionsProps {
   compact?: boolean;
   hideFavorite?: boolean;
   onFavorite?: (articleId: string) => void;
+  onArticleUpdated?: (article: Article) => void;
 }
 
 export const ArticleActions = ({
@@ -56,6 +51,7 @@ export const ArticleActions = ({
   compact = false,
   hideFavorite = false,
   onFavorite,
+  onArticleUpdated,
 }: ArticleActionsProps) => {
   const { t } = useTranslation();
   const { logAction } = useHistory();
@@ -67,26 +63,17 @@ export const ArticleActions = ({
   const [favorited, setFavorited] = useState(isFavorited);
   const [selectFolderDialogOpen, setSelectFolderDialogOpen] = useState(false);
   const [unfavoriteConfirmOpen, setUnfavoriteConfirmOpen] = useState(false);
-  const [folders, setFolders] = useState<FolderItem[]>([]);
-  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
   const [newFolderName, setNewFolderName] = useState('');
   const [showNewFolderInput, setShowNewFolderInput] = useState(false);
+  const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
+  const [folderPath, setFolderPath] = useState<{ id: string | null; name: string }[]>([{ id: null, name: t('article.rootFolder') }]);
 
   const { items, createFolder, addFavorite, removeFavorite } = useFavorites();
 
-  // 获取所有文件夹
-  useEffect(() => {
-    const buildFolderTree = (folderItems: FavoriteItem[], parentId: string | null = null): FolderItem[] => {
-      return folderItems
-        .filter(item => item.type === 'folder' && item.parentId === parentId)
-        .map(item => ({
-          id: item.id,
-          name: item.name,
-          children: item.children ? buildFolderTree(item.children, item.id) : [],
-        }));
-    };
-    setFolders(buildFolderTree(items));
-  }, [items]);
+  // 获取当前文件夹下的子文件夹
+  const currentSubFolders = items
+    .filter(item => item.type === 'folder' && item.parentId === currentFolderId)
+    .map(item => ({ id: item.id, name: item.name }));
 
   const handleAbstract = () => {
     setAbstractDialogOpen(true);
@@ -112,6 +99,9 @@ export const ArticleActions = ({
     if (favorited) {
       setUnfavoriteConfirmOpen(true);
     } else {
+      // Reset to root folder when opening dialog
+      setCurrentFolderId(null);
+      setFolderPath([{ id: null, name: t('article.rootFolder') }]);
       setSelectFolderDialogOpen(true);
     }
   };
@@ -133,10 +123,10 @@ export const ArticleActions = ({
     }
   };
 
-  const handleSelectFolder = async (folderId: string | null) => {
+  const handleSelectFolder = () => {
     logAction(article.id, 'favorite');
 
-    await addFavorite(article, folderId);
+    addFavorite(article, currentFolderId);
     setFavorited(true);
     onFavorite?.(article.id);
     setSnackbarMessage(t('article.addToFavorites'));
@@ -145,57 +135,26 @@ export const ArticleActions = ({
     setSelectFolderDialogOpen(false);
   };
 
+  const handleNavigateToFolder = (folderId: string, folderName: string) => {
+    setCurrentFolderId(folderId);
+    setFolderPath(prev => [...prev, { id: folderId, name: folderName }]);
+  };
+
+  const handleBreadcrumbClick = (folderId: string | null, index: number) => {
+    setCurrentFolderId(folderId);
+    setFolderPath(prev => prev.slice(0, index + 1));
+  };
+
   const handleCreateNewFolder = async () => {
     if (newFolderName.trim()) {
-      await createFolder(newFolderName);
+      const newFolder = await createFolder(newFolderName, currentFolderId);
       setNewFolderName('');
       setShowNewFolderInput(false);
-    }
-  };
-
-  const toggleFolderExpand = (folderId: string) => {
-    setExpandedFolders(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(folderId)) {
-        newSet.delete(folderId);
-      } else {
-        newSet.add(folderId);
+      // 进入新创建的文件夹
+      if (newFolder) {
+        handleNavigateToFolder(newFolder, newFolderName);
       }
-      return newSet;
-    });
-  };
-
-  const renderFolderTree = (folders: FolderItem[], depth = 0) => {
-    return folders.map(folder => (
-      <Box key={folder.id}>
-        <ListItemButton
-          sx={{ pl: 2 + depth * 2 }}
-          onClick={() => handleSelectFolder(folder.id)}
-        >
-          <ListItemIcon sx={{ minWidth: 36 }}>
-            <FolderIcon sx={{ color: '#FFA726' }} />
-          </ListItemIcon>
-          <ListItemText primary={folder.name} />
-          {folder.children && folder.children.length > 0 && (
-            <IconButton
-              size="small"
-              onClick={(e) => {
-                e.stopPropagation();
-                toggleFolderExpand(folder.id!);
-              }}
-              sx={{ p: 0.5 }}
-            >
-              {expandedFolders.has(folder.id!) ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
-            </IconButton>
-          )}
-        </ListItemButton>
-        {folder.children && folder.children.length > 0 && (
-          <Collapse in={expandedFolders.has(folder.id!)}>
-            {renderFolderTree(folder.children, depth + 1)}
-          </Collapse>
-        )}
-      </Box>
-    ));
+    }
   };
 
   const handlePreviewPdf = () => {
@@ -253,20 +212,53 @@ export const ArticleActions = ({
         isFavorited={favorited}
         onClose={() => setAbstractDialogOpen(false)}
         onFavoriteChange={(newFavorited) => setFavorited(newFavorited)}
+        onArticleUpdated={onArticleUpdated}
       />
 
       {/* Select Folder Dialog */}
       <Dialog open={selectFolderDialogOpen} onClose={() => setSelectFolderDialogOpen(false)} maxWidth="xs" fullWidth>
         <DialogTitle>{t('article.selectFolder')}</DialogTitle>
         <DialogContent>
-          <List sx={{ pt: 1 }}>
-            <ListItemButton onClick={() => handleSelectFolder(null)}>
+          {/* Breadcrumb navigation */}
+          <Breadcrumbs sx={{ mb: 2 }}>
+            {folderPath.map((node, index) => (
+              <Link
+                key={node.id || 'root'}
+                component="button"
+                variant="body2"
+                onClick={() => handleBreadcrumbClick(node.id, index)}
+                sx={{ cursor: 'pointer' }}
+              >
+                {node.name}
+              </Link>
+            ))}
+          </Breadcrumbs>
+
+          {/* Navigate to parent button */}
+          {currentFolderId && (
+            <ListItemButton onClick={() => handleBreadcrumbClick(folderPath[folderPath.length - 2]?.id, folderPath.length - 2)}>
               <ListItemIcon sx={{ minWidth: 36 }}>
-                <FolderIcon sx={{ color: '#FFA726' }} />
+                <ArrowUpwardIcon sx={{ color: 'text.secondary' }} />
               </ListItemIcon>
-              <ListItemText primary={t('article.rootFolder')} />
+              <ListItemText primary={t('article.parentFolder')} />
             </ListItemButton>
-            {renderFolderTree(folders)}
+          )}
+
+          {/* Subfolders list */}
+          <List>
+            {currentSubFolders.map(folder => (
+              <ListItemButton key={folder.id} onClick={() => handleNavigateToFolder(folder.id, folder.name)}>
+                <ListItemIcon sx={{ minWidth: 36 }}>
+                  <FolderIcon sx={{ color: '#FFA726' }} />
+                </ListItemIcon>
+                <ListItemText primary={folder.name} />
+              </ListItemButton>
+            ))}
+            {currentSubFolders.length === 0 && !currentFolderId && (
+              <Typography color="text.secondary" sx={{ py: 2, textAlign: 'center' }}>
+                {t('favorites.emptyFolder')}
+              </Typography>
+            )}
           </List>
 
           {/* 新建文件夹 */}
@@ -297,6 +289,9 @@ export const ArticleActions = ({
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setSelectFolderDialogOpen(false)}>{t('common.cancel')}</Button>
+          <Button variant="contained" onClick={handleSelectFolder}>
+            {t('article.confirmSelect')}
+          </Button>
         </DialogActions>
       </Dialog>
 

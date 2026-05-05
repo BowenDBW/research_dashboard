@@ -3,7 +3,7 @@
 
 use crate::dao::{DbConnection};
 use crate::dao::chat::*;
-use crate::models::{CreateSessionRequest, ChatSession, ChatMessage, FrontendChatSession, FrontendChatMessage};
+use crate::models::{CreateSessionRequest, SendMessageRequest, ChatSession, ChatMessage, FrontendChatSession, FrontendChatMessage};
 
 /// Convert database ChatSession to frontend format
 fn session_to_frontend(session: ChatSession) -> FrontendChatSession {
@@ -61,4 +61,12 @@ pub fn delete_chat_session(conn: &DbConnection, session_id: i64) -> Result<(), S
 pub fn get_recent_sessions_list(conn: &DbConnection, mode: Option<&str>, limit: i32) -> Result<Vec<FrontendChatSession>, String> {
     let sessions = get_recent_sessions(conn, mode, limit)?;
     Ok(sessions.into_iter().map(session_to_frontend).collect())
+}
+
+/// Add message to session - returns frontend format
+pub fn add_message_to_session(conn: &DbConnection, session_id: i64, req: &SendMessageRequest) -> Result<FrontendChatMessage, String> {
+    // Determine role: if model_id is set, it's assistant; otherwise user
+    let role = if req.model_id.is_some() { "assistant" } else { "user" };
+    let msg = add_message(conn, session_id, role, &req.content)?;
+    Ok(message_to_frontend(msg))
 }
