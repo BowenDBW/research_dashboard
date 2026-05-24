@@ -10,16 +10,6 @@
     "opener:default",
     "store:default",
     "dialog:default",
-    "shell:allow-open",
-    {
-      "identifier": "shell:allow-execute",
-      "allow": [
-        {
-          "name": "mlx-chat-service",
-          "sidecar": true,
-          "args": true
-        }
-      ]
-    }
+    "shell:allow-open"
   ]
 }

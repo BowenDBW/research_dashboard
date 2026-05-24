@@ -1,0 +1,10 @@
+{
+  "bundle": {
+    "externalBin": [
+      "binaries/mlx-chat-service"
+    ],
+    "resources": {
+      "binaries/": "./"
+    }
+  }
+}

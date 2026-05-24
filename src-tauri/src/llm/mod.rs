@@ -3,16 +3,27 @@
 
 pub mod types;
 pub mod cloud;
+#[cfg(target_os = "macos")]
 pub mod mlx;
 
 use cloud::CloudLlmProvider;
+#[cfg(target_os = "macos")]
 use mlx::chat_with_mlx;
 use serde_json::Value;
 
 // Re-export main types
 pub use types::{ChatMessage, MessageRole, ConnectionTestResult, ProviderConfig};
 pub use cloud::test_local_connection;
+#[cfg(target_os = "macos")]
 pub use mlx::{is_mlx_available, test_mlx_connection};
+
+/// Check if MLX is available (always false on non-macOS)
+pub fn is_mlx_available() -> bool {
+    #[cfg(target_os = "macos")]
+    { mlx::is_mlx_available() }
+    #[cfg(not(target_os = "macos"))]
+    { false }
+}
 
 /// Send a chat message to the appropriate provider based on model configuration
 /// Returns the assistant's response content
@@ -38,8 +49,17 @@ pub async fn send_chat_message(
         "local" => {
             // Check if it's MLX type
             if provider_info.local_type.as_deref() == Some("mlx") {
-                // Use MLX service
-                chat_with_mlx(app_handle, messages, provider_info.model_path.clone().unwrap_or_default(), None).await
+                #[cfg(target_os = "macos")]
+                {
+                    chat_with_mlx(app_handle, messages, provider_info.model_path.clone().unwrap_or_default(), None).await
+                }
+                #[cfg(not(target_os = "macos"))]
+                {
+                    let _ = app_handle;
+                    let _ = messages;
+                    let _ = provider_info.model_path;
+                    Err("MLX 模型仅在 macOS 上可用".to_string())
+                }
             } else {
                 // Local server (like Ollama) uses OpenAI format
                 let provider = CloudLlmProvider::new(ProviderConfig {

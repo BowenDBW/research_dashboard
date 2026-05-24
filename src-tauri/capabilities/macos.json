@@ -1,0 +1,18 @@
+{
+  "identifier": "macos-mlx",
+  "description": "macOS-only capability for MLX chat service sidecar",
+  "platforms": ["macOS"],
+  "windows": ["main"],
+  "permissions": [
+    {
+      "identifier": "shell:allow-execute",
+      "allow": [
+        {
+          "name": "mlx-chat-service",
+          "sidecar": true,
+          "args": true
+        }
+      ]
+    }
+  ]
+}
