@@ -206,6 +206,15 @@ pub struct FrontendChatMessage {
     pub timestamp: String,
 }
 
+/// Response for send_message - includes message and optionally updated session title
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SendMessageResponse {
+    pub message: FrontendChatMessage,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub updated_session_title: Option<String>,
+}
+
 // ========== Subscription Frontend Types ==========
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

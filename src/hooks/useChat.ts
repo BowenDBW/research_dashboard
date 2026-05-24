@@ -15,7 +15,30 @@ export function useChat() {
         mode: mode || null,
         limit: limit || 20,
       });
+      console.log('[DEBUG] fetchSessions response:', response);
+
+      // Fetch messages for each session that might have messages
+      const messagesData: Record<string, ChatMessage[]> = {};
+      await Promise.all(
+        response.map(async (session) => {
+          try {
+            const msgs = await invoke<ChatMessage[]>('chat_get_messages', {
+              sessionId: parseInt(session.id),
+            });
+            console.log(`[DEBUG] Session ${session.id} messages:`, msgs);
+            if (msgs.length > 0) {
+              messagesData[session.id] = msgs;
+            }
+          } catch (e) {
+            console.error(`Failed to fetch messages for session ${session.id}:`, e);
+          }
+        })
+      );
+      console.log('[DEBUG] messagesData:', messagesData);
+
+      // Update both sessions and messages at the same time to avoid race condition
       setSessions(response);
+      setMessages(messagesData);
     } catch (error) {
       console.error('Failed to fetch sessions:', error);
       setSessions([]);
@@ -110,6 +133,19 @@ export function useChat() {
     content: string,
     modelId: string,
   ): Promise<void> => {
+    // Immediately show user message in UI
+    const userMessage: ChatMessage = {
+      id: `temp-user-${Date.now()}`,
+      sessionId,
+      role: 'user',
+      content,
+      timestamp: new Date().toISOString(),
+    };
+    setMessages((prev: Record<string, ChatMessage[]>) => ({
+      ...prev,
+      [sessionId]: [...(prev[sessionId] || []), userMessage],
+    }));
+
     setSendingMessage(true);
     try {
       // Call backend to send message (backend saves both user and assistant messages)
@@ -118,7 +154,7 @@ export function useChat() {
         content,
         modelId,
       });
-      // Refresh messages from backend after sending
+      // Refresh messages from backend after sending (replace temp message with real ones)
       const response = await invoke<ChatMessage[]>('chat_get_messages', {
         sessionId: parseInt(sessionId),
       });
@@ -128,6 +164,11 @@ export function useChat() {
       }));
     } catch (error) {
       console.error('Failed to send message:', error);
+      // Remove the temp user message on error
+      setMessages((prev: Record<string, ChatMessage[]>) => ({
+        ...prev,
+        [sessionId]: (prev[sessionId] || []).filter(m => m.id !== userMessage.id),
+      }));
       throw error;
     } finally {
       setSendingMessage(false);

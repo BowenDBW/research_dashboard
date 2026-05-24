@@ -55,6 +55,49 @@ pub async fn send_chat_message(
     }
 }
 
+/// Generate a short title for a chat session based on the first user message
+/// Returns a title string (max ~50 characters)
+pub async fn generate_session_title(
+    app_handle: &tauri::AppHandle,
+    first_user_message: String,
+    model_id: String,
+    settings: Value,
+) -> Result<String, String> {
+    let title_prompt = format!(
+        "Based on the following user message, generate a very short title (3-10 words, preferably in Chinese if the message is Chinese) for this conversation. Only output the title, nothing else.\n\nUser message: {}",
+        first_user_message
+    );
+
+    let messages = vec![ChatMessage {
+        role: MessageRole::User,
+        content: title_prompt,
+    }];
+
+    let title = send_chat_message(app_handle, messages, model_id, settings).await?;
+
+    // Clean up the title - remove quotes, trim whitespace, limit length
+    let cleaned_title: String = title
+        .trim()
+        .replace("\"", "")
+        .replace("'", "")
+        .lines()
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_string();
+
+    // Limit to 50 characters max
+    let final_title = if cleaned_title.len() > 50 {
+        cleaned_title.chars().take(50).collect()
+    } else if cleaned_title.is_empty() {
+        "新对话".to_string()
+    } else {
+        cleaned_title
+    };
+
+    Ok(final_title)
+}
+
 /// Provider information extracted from settings
 struct ProviderInfo {
     provider_id: String,

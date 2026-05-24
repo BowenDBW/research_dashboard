@@ -19,6 +19,11 @@ export interface ChatMessage {
   timestamp: string;
 }
 
+export interface SendMessageResponse {
+  message: ChatMessage;
+  updatedSessionTitle?: string;
+}
+
 export interface ChatContext {
   articleId?: string;
   dateRange?: [string, string];
