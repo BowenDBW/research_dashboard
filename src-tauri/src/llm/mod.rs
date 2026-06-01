@@ -15,7 +15,7 @@ use serde_json::Value;
 pub use types::{ChatMessage, MessageRole, ConnectionTestResult, ProviderConfig};
 pub use cloud::test_local_connection;
 #[cfg(target_os = "macos")]
-pub use mlx::{is_mlx_available, test_mlx_connection};
+pub use mlx::test_mlx_connection;
 
 /// Check if MLX is available (always false on non-macOS)
 pub fn is_mlx_available() -> bool {

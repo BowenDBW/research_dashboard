@@ -34,7 +34,7 @@ import {
   DarkMode as DarkModeIcon,
   LightMode as LightModeIcon,
 } from '@mui/icons-material';
-import { useChat } from '../../hooks';
+import { useChat } from '../../stores';
 import { useThemeMode } from '../../app/ThemeProvider';
 import { useTranslation } from 'react-i18next';
 

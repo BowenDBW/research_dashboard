@@ -30,8 +30,7 @@ import {
 } from '@mui/icons-material';
 import { useTranslation } from 'react-i18next';
 import { Article } from '../../types';
-import { useFavorites } from '../../hooks';
-import { useHistory } from '../../hooks';
+import { useFavoritesStore, useHistoryStore } from '../../stores';
 import { AbstractDialog } from './AbstractDialog';
 import { PdfViewerDialog } from './PdfViewerDialog';
 import { openExternalUrl } from '../../utils/url';
@@ -54,7 +53,7 @@ export const ArticleActions = ({
   onArticleUpdated,
 }: ArticleActionsProps) => {
   const { t } = useTranslation();
-  const { logAction } = useHistory();
+  const { logAction } = useHistoryStore();
   const [abstractDialogOpen, setAbstractDialogOpen] = useState(false);
   const [pdfViewerOpen, setPdfViewerOpen] = useState(false);
   const [snackbarOpen, setSnackbarOpen] = useState(false);
@@ -68,7 +67,7 @@ export const ArticleActions = ({
   const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
   const [folderPath, setFolderPath] = useState<{ id: string | null; name: string }[]>([{ id: null, name: t('article.rootFolder') }]);
 
-  const { items, createFolder, addFavorite, removeFavorite } = useFavorites();
+  const { items, createFolder, addFavorite, removeFavorite, navigateToFolder } = useFavoritesStore();
 
   // 获取当前文件夹下的子文件夹
   const currentSubFolders = items
@@ -102,6 +101,7 @@ export const ArticleActions = ({
       // Reset to root folder when opening dialog
       setCurrentFolderId(null);
       setFolderPath([{ id: null, name: t('article.rootFolder') }]);
+      navigateToFolder(null);
       setSelectFolderDialogOpen(true);
     }
   };

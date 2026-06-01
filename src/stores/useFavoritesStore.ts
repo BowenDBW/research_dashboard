@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { create } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
 import { FavoriteItem, FolderNode, Article } from '../types';
 
@@ -35,111 +35,123 @@ interface FavoriteClipboard {
   itemId: string;
 }
 
-export function useFavorites() {
-  const [items, setItems] = useState<FavoriteItem[]>([]);
-  const [folderPath, setFolderPath] = useState<FolderNode[]>([{ id: null, name: '根目录', parentId: null }]);
-  const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
-  const [clipboard, setClipboard] = useState<FavoriteClipboard | null>(null);
-  const [loading, setLoading] = useState(false);
+interface FavoritesStore {
+  items: FavoriteItem[];
+  folderPath: FolderNode[];
+  currentFolderId: string | null;
+  clipboard: FavoriteClipboard | null;
+  loading: boolean;
+  navigateToFolder: (folderId: string | null) => Promise<void>;
+  createFolder: (name: string, parentId?: string | null) => Promise<string>;
+  renameFolder: (folderId: string, newName: string) => Promise<void>;
+  deleteFolder: (folderId: string) => Promise<void>;
+  cutFolder: (folderId: string) => void;
+  cutPaper: (paperId: string) => void;
+  pasteItem: (targetFolderId: string | null) => Promise<void>;
+  addFavorite: (article: Article, folderId?: string | null) => Promise<void>;
+  removeFavorite: (articleId: string) => Promise<void>;
+  movePaper: (articleId: string, newFolderId: string | null) => Promise<void>;
+  getFolderPath: (folderId: string | null) => Promise<FolderNode[]>;
+}
 
-  const navigateToFolder = useCallback(async (folderId: string | null) => {
-    console.log('[navigateToFolder] 开始导航到文件夹:', folderId);
-    setLoading(true);
-    setCurrentFolderId(folderId);
+export const useFavoritesStore = create<FavoritesStore>((set, get) => ({
+  items: [],
+  folderPath: [{ id: null, name: '根目录', parentId: null }],
+  currentFolderId: null,
+  clipboard: null,
+  loading: false,
+
+  navigateToFolder: async (folderId) => {
+    set({ loading: true, currentFolderId: folderId });
     try {
       const response = await invoke<FolderContentsResponse>('favorites_contents', {
         folderId: folderId ? parseInt(folderId) : null,
       });
-      console.log('[navigateToFolder] 后端返回数据:', response);
-      console.log('[navigateToFolder] folders数量:', response.folders?.length);
-      console.log('[navigateToFolder] papers数量:', response.papers?.length);
 
-      // 给 folders 添加 type: 'folder'
       const folderItems: FavoriteItem[] = (response.folders || []).map(f => ({
         ...f,
         type: 'folder' as const,
-        parentId: f.parentId,
+        parentId: f.parentId ?? null,
       }));
 
-      // 给 papers 添加 type: 'file'
       const paperItems: FavoriteItem[] = (response.papers || []).map(p => ({
         ...p,
         type: 'file' as const,
-        parentId: p.folderId,
+        parentId: p.folderId ?? null,
         article: p.article || undefined,
       }));
 
       const allItems = [...folderItems, ...paperItems];
-      console.log('[navigateToFolder] 设置items数量:', allItems.length);
-      setItems(allItems);
+      set({ items: allItems });
 
-      // 转换 path
       const pathNodes: FolderNode[] = (response.path || []).map(p => ({
         id: p.id,
         name: p.name,
         parentId: null,
       }));
-      setFolderPath(pathNodes);
+      set({ folderPath: pathNodes });
     } catch (error) {
       console.error('Failed to navigate:', error);
-      setItems([]);
+      set({ items: [] });
     } finally {
-      setLoading(false);
+      set({ loading: false });
     }
-  }, []);
+  },
 
-  const createFolder = useCallback(async (name: string, parentId?: string | null) => {
+  createFolder: async (name, parentId) => {
     try {
       const response = await invoke<BackendFolder>('favorites_create_folder', {
         name,
         parentId: parentId ? parseInt(parentId) : null,
       });
-      // 添加 type 字段
       const folderItem: FavoriteItem = {
         ...response,
         type: 'folder' as const,
         parentId: response.parentId,
       };
-      setItems(prev => [...prev, folderItem]);
+      set((state) => ({ items: [...state.items, folderItem] }));
       return folderItem.id;
     } catch (error) {
       console.error('Failed to create folder:', error);
       throw error;
     }
-  }, []);
+  },
 
-  const renameFolder = useCallback(async (folderId: string, newName: string) => {
+  renameFolder: async (folderId, newName) => {
     try {
       await invoke('favorites_rename_folder', {
         folderId: parseInt(folderId),
         newName,
       });
-      setItems(prev => prev.map(item => item.id === folderId ? { ...item, name: newName } : item));
+      set((state) => ({
+        items: state.items.map(item => item.id === folderId ? { ...item, name: newName } : item),
+      }));
     } catch (error) {
       console.error('Failed to rename folder:', error);
       throw error;
     }
-  }, []);
+  },
 
-  const deleteFolder = useCallback(async (folderId: string) => {
+  deleteFolder: async (folderId) => {
     try {
       await invoke('favorites_delete_folder', { folderId: parseInt(folderId) });
-      setItems(prev => prev.filter(item => item.id !== folderId));
+      set((state) => ({ items: state.items.filter(item => item.id !== folderId) }));
     } catch (error) {
       console.error('Failed to delete folder:', error);
       throw error;
     }
-  }, []);
+  },
 
-  const cutFolder = useCallback((folderId: string) => {
-    setClipboard({ action: 'cut', itemType: 'folder', itemId: folderId });
-  }, []);
+  cutFolder: (folderId) => {
+    set({ clipboard: { action: 'cut', itemType: 'folder', itemId: folderId } });
+  },
 
-  const cutPaper = useCallback((paperId: string) => {
-    setClipboard({ action: 'cut', itemType: 'paper', itemId: paperId });
-  }, []);
+  cutPaper: (paperId) => {
+    set({ clipboard: { action: 'cut', itemType: 'paper', itemId: paperId } });
+  },
 
-  const pasteItem = useCallback(async (targetFolderId: string | null) => {
+  pasteItem: async (targetFolderId) => {
+    const { clipboard, currentFolderId } = get();
     if (!clipboard) return;
     try {
       if (clipboard.itemType === 'folder') {
@@ -153,15 +165,15 @@ export function useFavorites() {
           newFolderId: targetFolderId ? parseInt(targetFolderId) : null,
         });
       }
-      setClipboard(null);
-      await navigateToFolder(currentFolderId);
+      set({ clipboard: null });
+      await get().navigateToFolder(currentFolderId);
     } catch (error) {
       console.error('Failed to paste item:', error);
       throw error;
     }
-  }, [clipboard, currentFolderId, navigateToFolder]);
+  },
 
-  const addFavorite = useCallback(async (article: Article, folderId?: string | null) => {
+  addFavorite: async (article, folderId) => {
     try {
       await invoke('favorites_add', {
         articleId: parseInt(article.id),
@@ -175,37 +187,38 @@ export function useFavorites() {
         parentId: folderId ?? null,
         createdAt: new Date().toISOString(),
       };
-      setItems(prev => [...prev, newItem]);
+      set((state) => ({ items: [...state.items, newItem] }));
     } catch (error) {
       console.error('Failed to add favorite:', error);
       throw error;
     }
-  }, []);
+  },
 
-  const removeFavorite = useCallback(async (articleId: string) => {
+  removeFavorite: async (articleId) => {
     try {
       await invoke('favorites_remove', { articleId: parseInt(articleId) });
-      setItems(prev => prev.filter(item => item.id !== articleId));
+      set((state) => ({ items: state.items.filter(item => item.id !== articleId) }));
     } catch (error) {
       console.error('Failed to remove favorite:', error);
       throw error;
     }
-  }, []);
+  },
 
-  const movePaper = useCallback(async (articleId: string, newFolderId: string | null) => {
+  movePaper: async (articleId, newFolderId) => {
+    const { currentFolderId } = get();
     try {
       await invoke('favorites_move_paper', {
         articleId: parseInt(articleId),
         newFolderId: newFolderId ? parseInt(newFolderId) : null,
       });
-      await navigateToFolder(currentFolderId);
+      await get().navigateToFolder(currentFolderId);
     } catch (error) {
       console.error('Failed to move paper:', error);
       throw error;
     }
-  }, [currentFolderId, navigateToFolder]);
+  },
 
-  const getFolderPath = useCallback(async (folderId: string | null) => {
+  getFolderPath: async (folderId) => {
     try {
       const response = await invoke<FolderNode[]>('favorites_path', {
         folderId: folderId ? parseInt(folderId) : null,
@@ -215,24 +228,5 @@ export function useFavorites() {
       console.error('Failed to get folder path:', error);
       return [{ id: null, name: '根目录', parentId: null }];
     }
-  }, []);
-
-  return {
-    items,
-    folderPath,
-    currentFolderId,
-    clipboard,
-    loading,
-    navigateToFolder,
-    createFolder,
-    renameFolder,
-    deleteFolder,
-    cutFolder,
-    cutPaper,
-    pasteItem,
-    addFavorite,
-    removeFavorite,
-    movePaper,
-    getFolderPath,
-  };
-}
+  },
+}));

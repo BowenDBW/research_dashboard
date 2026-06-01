@@ -23,8 +23,7 @@ import {
   AutoAwesome as AutoAwesomeIcon,
 } from '@mui/icons-material';
 import dayjs from 'dayjs';
-import { useHistory } from '../../hooks';
-import { useChat } from '../../hooks';
+import { useHistoryStore, useChat } from '../../stores';
 import { AbstractDialog } from '../../components/article/AbstractDialog';
 import { useTranslation } from 'react-i18next';
 import { Article } from '../../types';
@@ -35,7 +34,7 @@ const CHAT_MODES = ['chat', 'paper_search', 'chapter_summary'];
 const HistoryPage = () => {
   const navigate = useNavigate();
   const { t } = useTranslation();
-  const { records, totalCount, page, pageSize, updateFilters, updatePage } = useHistory();
+  const { records, totalCount, page, pageSize, filters, updateFilters, updatePage, fetchRecords } = useHistoryStore();
   const { sessions, messages } = useChat();
   const [startDate, setStartDate] = useState<dayjs.Dayjs | null>(dayjs().subtract(7, 'day'));
   const [endDate, setEndDate] = useState<dayjs.Dayjs | null>(dayjs());
@@ -60,6 +59,13 @@ const HistoryPage = () => {
       });
     }
   }, [historyType, startDate, endDate, showActionFilter, selectedActions, updateFilters]);
+
+  // 根据 page/pageSize/filters 自动获取历史记录数据
+  useEffect(() => {
+    if (historyType === 'reading') {
+      fetchRecords(page, pageSize, filters);
+    }
+  }, [page, pageSize, filters, historyType, fetchRecords]);
 
   // 页面可见时刷新数据
   useEffect(() => {

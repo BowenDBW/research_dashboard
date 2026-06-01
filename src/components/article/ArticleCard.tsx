@@ -5,7 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { Article } from '../../types';
 import { ArticleActions } from './ArticleActions';
 import { openExternalUrl } from '../../utils/url';
-import { useHistory } from '../../hooks';
+import { useHistoryStore } from '../../stores';
 
 interface ArticleCardProps {
   article: Article;
@@ -15,7 +15,7 @@ interface ArticleCardProps {
 export const ArticleCard = ({ article, onArticleUpdated }: ArticleCardProps) => {
   const navigate = useNavigate();
   const { t } = useTranslation();
-  const { logAction } = useHistory();
+  const { logAction } = useHistoryStore();
 
   // Check if article has venue info (not just arXiv)
   const hasVenueInfo = article.venueId && article.venueId > 0;

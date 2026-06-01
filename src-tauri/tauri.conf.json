@@ -20,6 +20,10 @@
       }
     ],
     "security": {
+      "assetProtocol": {
+        "enable": true,
+        "scope": ["$HOME/.research_dashboard/pdfs/**"]
+      },
       "csp": null
     }
   },

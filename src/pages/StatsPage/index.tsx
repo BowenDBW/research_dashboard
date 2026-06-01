@@ -56,7 +56,7 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { useTranslation } from 'react-i18next';
-import { useStats } from '../../hooks';
+import { useStatsStore } from '../../stores';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { MonthlyHeatmap, WeeklyHourHeatmap, DomainChart, KeywordCloud, StatsCard } from '../../components/stats';
 import { StatsCardItem, StatsCardType, HeatmapCell } from '../../types';
@@ -212,7 +212,7 @@ const SortableStatsCard = ({ id, cardType, value, unit, isEditMode, onRemove }: 
 const StatsPage = () => {
   const navigate = useNavigate();
   const { t } = useTranslation();
-  const { statsData, fetchStats } = useStats();
+  const { statsData, fetchStats } = useStatsStore();
   const { settings, updateStatsCardConfig } = useSettingsStore();
 
   const [isEditMode, setIsEditMode] = useState(false);

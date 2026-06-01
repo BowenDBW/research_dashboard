@@ -28,7 +28,7 @@ import {
 } from '@mui/icons-material';
 import dayjs from 'dayjs';
 import { useTranslation } from 'react-i18next';
-import { useDaily } from '../../hooks';
+import { useDailyStore } from '../../stores';
 import { DailyRecommendationDialog } from '../../components/daily/DailyRecommendationDialog';
 
 const PAGE_SIZE_OPTIONS = [5, 10, 20] as const;
@@ -36,7 +36,7 @@ const PAGE_SIZE_OPTIONS = [5, 10, 20] as const;
 const DailyPage = () => {
   const navigate = useNavigate();
   const { t } = useTranslation();
-  const { recommendations, totalRecommendations, loading, fetchRecommendations } = useDaily();
+  const { recommendations, totalRecommendations, loading, fetchRecommendations } = useDailyStore();
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(5);
   const [searchMonth, setSearchMonth] = useState<dayjs.Dayjs | null>(null);

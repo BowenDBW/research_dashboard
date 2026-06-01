@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { create } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
 import { Article } from '../types';
 
@@ -24,12 +24,11 @@ interface VenueSearchResult {
   rankings?: VenueRanking[];
 }
 
-export function useArticles() {
-  const [articles, setArticles] = useState<Article[]>([]);
-  const [totalCount, setTotalCount] = useState(0);
-  const [loading, setLoading] = useState(false);
-
-  const fetchArticles = useCallback(async (params: {
+interface ArticlesStore {
+  articles: Article[];
+  totalCount: number;
+  loading: boolean;
+  fetchArticles: (params: {
     page: number;
     pageSize: number;
     query?: string | null;
@@ -38,40 +37,49 @@ export function useArticles() {
     sources?: string[] | null;
     domains?: string[] | null;
     subscribedOnly?: boolean;
-  }) => {
-    setLoading(true);
+  }) => Promise<void>;
+  fetchSources: () => Promise<string[]>;
+  fetchDomains: () => Promise<string[]>;
+  searchVenues: (query: string, limit?: number) => Promise<VenueSearchResult[]>;
+}
+
+export const useArticlesStore = create<ArticlesStore>((set) => ({
+  articles: [],
+  totalCount: 0,
+  loading: false,
+
+  fetchArticles: async (params) => {
+    set({ loading: true });
     try {
       const response = await invoke<PaperListResponse>('papers_list', params);
-      setArticles(response.articles);
-      setTotalCount(response.total);
+      set({ articles: response.articles, totalCount: response.total });
     } catch (error) {
       console.error('Failed to fetch articles:', error);
-      setArticles([]);
-      setTotalCount(0);
+      set({ articles: [], totalCount: 0 });
     } finally {
-      setLoading(false);
+      set({ loading: false });
     }
-  }, []);
+  },
 
-  const fetchSources = useCallback(async () => {
+  fetchSources: async () => {
     try {
       return await invoke<string[]>('papers_sources');
     } catch (error) {
       console.error('Failed to fetch sources:', error);
       return [];
     }
-  }, []);
+  },
 
-  const fetchDomains = useCallback(async () => {
+  fetchDomains: async () => {
     try {
       return await invoke<string[]>('papers_domains');
     } catch (error) {
       console.error('Failed to fetch domains:', error);
       return [];
     }
-  }, []);
+  },
 
-  const searchVenues = useCallback(async (query: string, limit = 20): Promise<VenueSearchResult[]> => {
+  searchVenues: async (query, limit = 20) => {
     if (!query || query.length < 1) return [];
     try {
       return await invoke<VenueSearchResult[]>('papers_search_venue', { name: query, limit });
@@ -79,15 +87,5 @@ export function useArticles() {
       console.error('Failed to search venues:', error);
       return [];
     }
-  }, []);
-
-  return {
-    articles,
-    totalCount,
-    loading,
-    fetchArticles,
-    fetchSources,
-    fetchDomains,
-    searchVenues,
-  };
-}
+  },
+}));

@@ -42,9 +42,9 @@ import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { invoke } from '@tauri-apps/api/core';
 import { Article, VenueRanking } from '../../types';
-import { useFavorites } from '../../hooks';
-import { useChat } from '../../hooks';
-import { useHistory } from '../../hooks';
+import { useFavoritesStore } from '../../stores';
+import { useChat } from '../../stores';
+import { useHistoryStore } from '../../stores';
 import { PdfViewerDialog } from './PdfViewerDialog';
 import { openExternalUrl } from '../../utils/url';
 
@@ -83,7 +83,7 @@ export const AbstractDialog = ({
   const navigate = useNavigate();
   const { t } = useTranslation();
 
-  const { logAction, deleteRecentAction } = useHistory();
+  const { logAction, deleteRecentAction } = useHistoryStore();
 
   // 本地收藏状态，同步props
   const [localFavorited, setLocalFavorited] = useState(isFavorited);
@@ -138,7 +138,7 @@ export const AbstractDialog = ({
   const [manualVenuePublisher, setManualVenuePublisher] = useState('');
   const [publisherOptions, setPublisherOptions] = useState<string[]>([]);
 
-  const { items, createFolder, addFavorite, removeFavorite } = useFavorites();
+  const { items, createFolder, addFavorite, removeFavorite, navigateToFolder } = useFavoritesStore();
   const { createSession } = useChat();
 
   // 获取当前文件夹下的子文件夹
@@ -244,6 +244,7 @@ export const AbstractDialog = ({
       // Reset to root folder when opening dialog
       setCurrentFolderId(null);
       setFolderPath([{ id: null, name: t('article.rootFolder') }]);
+      navigateToFolder(null);
       setSelectFolderDialogOpen(true);
     }
   };

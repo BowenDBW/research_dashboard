@@ -40,7 +40,7 @@ import {
 } from '@mui/icons-material';
 import dayjs from 'dayjs';
 import { useTranslation } from 'react-i18next';
-import { useChat } from '../../hooks';
+import { useChat } from '../../stores';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { Article, ChatMode } from '../../types';
 

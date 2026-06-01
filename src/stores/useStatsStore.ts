@@ -1,6 +1,6 @@
-import { useState, useCallback } from 'react';
+import { create } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
-import { StatsData } from '../types/stats';
+import { StatsData } from '../types/stats.ts';
 
 interface StatsResponse {
   readingStats: StatsData['readingStats'];
@@ -19,47 +19,47 @@ interface TodayStatsResponse {
   chatCount: number;
 }
 
-export function useStats() {
-  const [statsData, setStatsData] = useState<StatsData | null>(null);
-  const [todayStats, setTodayStats] = useState<TodayStatsResponse | null>(null);
-  const [loading, setLoading] = useState(false);
+interface StatsStore {
+  statsData: StatsData | null;
+  todayStats: TodayStatsResponse | null;
+  loading: boolean;
+  fetchStats: (startDate: string, endDate: string) => Promise<void>;
+  fetchTodayStats: () => Promise<void>;
+  fetchTrend: (days: number) => Promise<{ date: string; count: number }[]>;
+}
 
-  const fetchStats = useCallback(async (startDate: string, endDate: string) => {
-    setLoading(true);
+export const useStatsStore = create<StatsStore>((set) => ({
+  statsData: null,
+  todayStats: null,
+  loading: false,
+
+  fetchStats: async (startDate, endDate) => {
+    set({ loading: true });
     try {
       const response = await invoke<StatsResponse>('stats_get', { startDate, endDate });
-      setStatsData(response);
+      set({ statsData: response });
     } catch (error) {
       console.error('Failed to fetch stats:', error);
     } finally {
-      setLoading(false);
+      set({ loading: false });
     }
-  }, []);
+  },
 
-  const fetchTodayStats = useCallback(async () => {
+  fetchTodayStats: async () => {
     try {
       const response = await invoke<TodayStatsResponse>('stats_today');
-      setTodayStats(response);
+      set({ todayStats: response });
     } catch (error) {
       console.error('Failed to fetch today stats:', error);
     }
-  }, []);
+  },
 
-  const fetchTrend = useCallback(async (days: number) => {
+  fetchTrend: async (days) => {
     try {
       return await invoke<{ date: string; count: number }[]>('stats_trend', { days });
     } catch (error) {
       console.error('Failed to fetch trend:', error);
       return [];
     }
-  }, []);
-
-  return {
-    statsData,
-    todayStats,
-    loading,
-    fetchStats,
-    fetchTodayStats,
-    fetchTrend,
-  };
-}
+  },
+}));

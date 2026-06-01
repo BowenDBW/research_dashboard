@@ -30,7 +30,7 @@ import {
 } from '@mui/icons-material';
 import dayjs from 'dayjs';
 import { useTranslation } from 'react-i18next';
-import { useArticles, useSubscription } from '../../hooks';
+import { useArticlesStore, useSubscriptionStore } from '../../stores';
 import { ArticleCard } from '../../components/article/ArticleCard';
 
 interface VenueRanking {
@@ -50,8 +50,8 @@ interface VenueOption {
 const ArticleListPage = () => {
   const navigate = useNavigate();
   const { t } = useTranslation();
-  const { articles, totalCount, loading, fetchArticles, searchVenues } = useArticles();
-  const { categories, loadSubscriptions } = useSubscription();
+  const { articles, totalCount, loading, fetchArticles, searchVenues } = useArticlesStore();
+  const { categories, loadSubscriptions } = useSubscriptionStore();
 
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);

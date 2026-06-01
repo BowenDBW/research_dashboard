@@ -71,14 +71,9 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { useFavorites } from '../../hooks';
-import { useHistory } from '../../hooks';
-import { useDaily } from '../../hooks';
+import { useFavoritesStore, useHistoryStore, useDailyStore, useStatsStore, useSubscriptionStore, useChat } from '../../stores';
 import { useSettingsStore } from '../../stores/useSettingsStore';
-import { useStats } from '../../hooks';
-import { useSubscription } from '../../hooks';
 import { DailyRecommendationDialog } from '../daily/DailyRecommendationDialog';
-import { useChat } from '../../hooks';
 import { SubscriptionDialog } from '../common/SubscriptionDialog';
 import { AbstractDialog } from '../article/AbstractDialog';
 import { CategorySelectDialog } from '../common/CategorySelectDialog';
@@ -268,13 +263,13 @@ const SortablePanel = ({
 export const RightToolbar = ({ open, onToggle }: RightToolbarProps) => {
   const navigate = useNavigate();
   const { t } = useTranslation();
-  const { items, folderPath, navigateToFolder } = useFavorites();
-  const { records } = useHistory();
-  const { recommendations, fetchRecommendations } = useDaily();
+  const { items, folderPath, navigateToFolder } = useFavoritesStore();
+  const { records } = useHistoryStore();
+  const { recommendations, fetchRecommendations } = useDailyStore();
   const { sessions, messages, switchSession, fetchSessions } = useChat();
   const { settings, updateSettings, loadSettings } = useSettingsStore();
-  const { todayStats, fetchTodayStats, statsData, fetchStats } = useStats();
-  const { authors, categories, keywords, loadSubscriptions } = useSubscription();
+  const { todayStats, fetchTodayStats, statsData, fetchStats } = useStatsStore();
+  const { authors, categories, keywords, loadSubscriptions } = useSubscriptionStore();
   const [subscriptionDialogOpen, setSubscriptionDialogOpen] = useState(false);
   const [expandedPanels, setExpandedPanels] = useState<string[]>([]);
   const [abstractDialogOpen, setAbstractDialogOpen] = useState(false);

@@ -12,7 +12,7 @@ import {
   Typography,
 } from '@mui/material';
 import { useTranslation } from 'react-i18next';
-import { useSubscription } from '../../hooks';
+import { useSubscriptionStore } from '../../stores';
 import { getAllCategories, getCategoryByCode } from '../../constants/academicCategories';
 
 interface SubscriptionDialogProps {
@@ -22,7 +22,7 @@ interface SubscriptionDialogProps {
 
 export const SubscriptionDialog = ({ open, onClose }: SubscriptionDialogProps) => {
   const { t } = useTranslation();
-  const { keywords, authors, categories, addKeyword, removeKeyword, addAuthor, removeAuthor, addCategory, removeCategory, loadSubscriptions } = useSubscription();
+  const { keywords, authors, categories, addKeyword, removeKeyword, addAuthor, removeAuthor, addCategory, removeCategory, loadSubscriptions } = useSubscriptionStore();
   const [localKeywords, setLocalKeywords] = useState<string[]>([]);
   const [localAuthors, setLocalAuthors] = useState<string[]>([]);
   const [localCategories, setLocalCategories] = useState<string[]>([]);
