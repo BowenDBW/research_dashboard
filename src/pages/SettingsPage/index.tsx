@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Box,
@@ -27,6 +27,8 @@ import {
   Stack,
   Select,
   MenuItem,
+  LinearProgress,
+  CircularProgress,
 } from '@mui/material';
 import {
   ArrowBack as ArrowBackIcon,
@@ -38,12 +40,19 @@ import {
   Storage as StorageIcon,
   Apple as AppleIcon,
   Edit as EditIcon,
+  SdStorage as SdStorageIcon,
+  Chat as ChatIcon,
+  Article as ArticleIcon,
+  PictureAsPdf as PdfIcon,
+  History as HistoryIcon,
 } from '@mui/icons-material';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { useThemeMode, ThemePreference } from '../../app/ThemeProvider';
 import { CloudProviderConfig, LocalProviderConfig, LocalProviderType, ModelConfig } from '../../types';
 import { CategorySelectDialog } from '../../components/common/CategorySelectDialog';
 import { getCategoryByCode } from '../../constants/academicCategories';
+import { invoke } from '@tauri-apps/api/core';
+import { open as showOpenDialog } from '@tauri-apps/plugin-dialog';
 
 const generateId = () => Math.random().toString(36).substring(2, 9);
 
@@ -66,8 +75,33 @@ const SettingsPage = () => {
   const [localSettings, setLocalSettings] = useState(settings);
   const [testResults, setTestResults] = useState<Record<string, { success: boolean; message: string }>>({});
   const [categoryDialogOpen, setCategoryDialogOpen] = useState(false);
+  const [diskUsage, setDiskUsage] = useState<{ totalGb: number; freeGb: number; appGb: number } | null>(null);
+  const [categorySizes, setCategorySizes] = useState<{
+    chatHistoryMb: number; readingHistoryMb: number;
+    articleDatabaseMb: number; pdfFilesMb: number; totalMb: number;
+  } | null>(null);
+  const [storageLoading, setStorageLoading] = useState(false);
 
   const appleDevice = isApplePlatform();
+
+  // Fetch real storage data from backend
+  const fetchStorageData = useCallback(async () => {
+    setStorageLoading(true);
+    try {
+      const [disk, stats] = await Promise.all([
+        invoke<{ totalGb: number; freeGb: number; appGb: number }>('get_disk_usage'),
+        invoke<{ chatHistoryMb: number; readingHistoryMb: number; articleDatabaseMb: number; pdfFilesMb: number; totalMb: number }>('get_storage_stats'),
+      ]);
+      setDiskUsage(disk);
+      setCategorySizes(stats);
+    } catch (err) {
+      console.error('Failed to fetch storage data:', err);
+    } finally {
+      setStorageLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { fetchStorageData(); }, [fetchStorageData]);
 
   // Sync local settings with store
   useEffect(() => {
@@ -88,11 +122,23 @@ const SettingsPage = () => {
     setTestResults((prev) => ({ ...prev, [`${type}-${providerId}`]: result }));
   };
 
-  const handleBrowsePath = () => {
-    setLocalSettings({
-      ...localSettings,
-      pdfStoragePath: '~/.research_dashboard',
-    });
+  const handleBrowsePath = async () => {
+    try {
+      const selected = await showOpenDialog({
+        multiple: false,
+        directory: true,
+        title: '选择PDF存储文件夹',
+      });
+      if (selected) {
+        await invoke('change_pdf_storage_path', { newPath: selected });
+        setLocalSettings({
+          ...localSettings,
+          pdfStoragePath: selected,
+        });
+      }
+    } catch (err) {
+      console.error('Failed to select folder:', err);
+    }
   };
 
   const handleThemeChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -270,6 +316,153 @@ const SettingsPage = () => {
 
       {/* Content */}
       <Container maxWidth="md" sx={{ py: 3, overflow: 'auto' }}>
+        {/* Storage Settings */}
+        <Paper sx={{ p: 3, mb: 3 }}>
+          <Typography variant="h6" gutterBottom>
+            <SdStorageIcon sx={{ fontSize: 20, mr: 0.5, verticalAlign: 'middle' }} />
+            存储设置
+          </Typography>
+
+          {/* Disk Usage Overview */}
+          <Box sx={{ mb: 3, p: 2, bgcolor: 'action.hover', borderRadius: 2 }}>
+            <Typography variant="subtitle2" gutterBottom sx={{ fontWeight: 500, mb: 1.5 }}>
+              磁盘空间占用
+            </Typography>
+            {storageLoading || !diskUsage ? (
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <CircularProgress size={16} />
+                <Typography variant="body2" color="text.secondary">计算中...</Typography>
+              </Box>
+            ) : (
+              <Box>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+                  <Typography variant="body2" color="text.secondary">总磁盘空间</Typography>
+                  <Typography variant="body2" sx={{ fontWeight: 500 }}>{diskUsage.totalGb.toFixed(1)} GB</Typography>
+                </Box>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+                  <Typography variant="body2" color="text.secondary">本应用使用</Typography>
+                  <Typography variant="body2" sx={{ fontWeight: 500 }}>{diskUsage.appGb.toFixed(2)} GB</Typography>
+                </Box>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+                  <Typography variant="body2" color="text.secondary">可用空间</Typography>
+                  <Typography variant="body2" sx={{ fontWeight: 500 }}>{diskUsage.freeGb.toFixed(1)} GB</Typography>
+                </Box>
+                {/* Three-color segmented bar */}
+                <Box sx={{ width: '100%', height: 10, borderRadius: 1, mt: 1, display: 'flex', gap: 0.25, overflow: 'hidden' }}>
+                  {(() => {
+                    const total = diskUsage.totalGb;
+                    if (total <= 0) return null;
+                    const otherPct = Math.max(0, ((total - diskUsage.freeGb - diskUsage.appGb) / total) * 100);
+                    const appPct = Math.max(0, (diskUsage.appGb / total) * 100);
+                    const freePct = Math.max(0, (diskUsage.freeGb / total) * 100);
+                    return (
+                      <>
+                        <Box sx={{ width: `${otherPct}%`, bgcolor: 'warning.main', borderRadius: 1, minWidth: otherPct > 0 ? 2 : 0 }} />
+                        <Box sx={{ width: `${appPct}%`, bgcolor: diskUsage.appGb / total > 0.8 ? 'error.main' : 'primary.main', borderRadius: 1, minWidth: appPct > 0 ? 2 : 0 }} />
+                        <Box sx={{ width: `${freePct}%`, bgcolor: 'grey.300', borderRadius: 1, minWidth: freePct > 0 ? 2 : 0 }} />
+                      </>
+                    );
+                  })()}
+                </Box>
+                <Box sx={{ display: 'flex', gap: 2, mt: 0.5 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                    <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: 'warning.main' }} />
+                    <Typography variant="caption" color="text.secondary">其他占用</Typography>
+                  </Box>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                    <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: 'primary.main' }} />
+                    <Typography variant="caption" color="text.secondary">本应用使用</Typography>
+                  </Box>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                    <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: 'grey.300' }} />
+                    <Typography variant="caption" color="text.secondary">可用空间</Typography>
+                  </Box>
+                </Box>
+              </Box>
+            )}
+          </Box>
+
+          {/* Storage Breakdown */}
+          <Box sx={{ mb: 3 }}>
+            <Typography variant="subtitle2" gutterBottom sx={{ fontWeight: 500 }}>数据详情</Typography>
+            {storageLoading || !categorySizes ? (
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <CircularProgress size={16} />
+                <Typography variant="body2" color="text.secondary">加载中...</Typography>
+              </Box>
+            ) : (
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                {/* Chat History */}
+                <Box>
+                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.5 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flex: 1 }}>
+                      <ChatIcon fontSize="small" color="primary" />
+                      <Typography variant="body2">聊天记录</Typography>
+                      <Typography variant="body2" sx={{ fontWeight: 500, ml: 1 }}>{categorySizes.chatHistoryMb < 1 ? `${(categorySizes.chatHistoryMb * 1024).toFixed(0)} KB` : categorySizes.chatHistoryMb >= 1024 ? `${(categorySizes.chatHistoryMb / 1024).toFixed(1)} GB` : `${categorySizes.chatHistoryMb.toFixed(1)} MB`}</Typography>
+                    </Box>
+                  </Box>
+                  <LinearProgress variant="determinate" value={categorySizes.totalMb > 0 ? (categorySizes.chatHistoryMb / categorySizes.totalMb) * 100 : 0} sx={{ height: 6, borderRadius: 1 }} color="primary" />
+                </Box>
+                {/* Reading History */}
+                <Box>
+                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.5 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flex: 1 }}>
+                      <HistoryIcon fontSize="small" color="secondary" />
+                      <Typography variant="body2">阅读记录</Typography>
+                      <Typography variant="body2" sx={{ fontWeight: 500, ml: 1 }}>{categorySizes.readingHistoryMb < 1 ? `${(categorySizes.readingHistoryMb * 1024).toFixed(0)} KB` : `${categorySizes.readingHistoryMb.toFixed(1)} MB`}</Typography>
+                    </Box>
+                  </Box>
+                  <LinearProgress variant="determinate" value={categorySizes.totalMb > 0 ? (categorySizes.readingHistoryMb / categorySizes.totalMb) * 100 : 0} sx={{ height: 6, borderRadius: 1 }} color="secondary" />
+                </Box>
+                {/* Article Database */}
+                <Box>
+                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.5 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flex: 1 }}>
+                      <ArticleIcon fontSize="small" color="info" />
+                      <Typography variant="body2">文章数据</Typography>
+                      <Typography variant="body2" sx={{ fontWeight: 500, ml: 1 }}>{categorySizes.articleDatabaseMb < 1 ? `${(categorySizes.articleDatabaseMb * 1024).toFixed(0)} KB` : `${categorySizes.articleDatabaseMb.toFixed(1)} MB`}</Typography>
+                    </Box>
+                  </Box>
+                  <LinearProgress variant="determinate" value={categorySizes.totalMb > 0 ? (categorySizes.articleDatabaseMb / categorySizes.totalMb) * 100 : 0} sx={{ height: 6, borderRadius: 1 }} color="info" />
+                </Box>
+                {/* PDF Files */}
+                <Box>
+                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.5 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flex: 1 }}>
+                      <PdfIcon fontSize="small" color="error" />
+                      <Typography variant="body2">PDF文件</Typography>
+                      <Typography variant="body2" sx={{ fontWeight: 500, ml: 1 }}>{categorySizes.pdfFilesMb < 1 ? `${(categorySizes.pdfFilesMb * 1024).toFixed(0)} KB` : categorySizes.pdfFilesMb >= 1024 ? `${(categorySizes.pdfFilesMb / 1024).toFixed(1)} GB` : `${categorySizes.pdfFilesMb.toFixed(1)} MB`}</Typography>
+                    </Box>
+                  </Box>
+                  <LinearProgress variant="determinate" value={categorySizes.totalMb > 0 ? (categorySizes.pdfFilesMb / categorySizes.totalMb) * 100 : 0} sx={{ height: 6, borderRadius: 1 }} color="error" />
+                </Box>
+              </Box>
+            )}
+
+            {/* Total */}
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mt: 2, pt: 1, borderTop: 1, borderColor: 'divider' }}>
+              <Typography variant="body2" sx={{ fontWeight: 500 }}>总存储占用</Typography>
+              <Typography variant="body2" sx={{ fontWeight: 600 }}>{categorySizes ? (categorySizes.totalMb >= 1024 ? `${(categorySizes.totalMb / 1024).toFixed(1)} GB` : `${categorySizes.totalMb.toFixed(1)} MB`) : '...'}</Typography>
+            </Box>
+          </Box>
+
+          {/* PDF Storage Path */}
+          <Box>
+            <Typography variant="subtitle2" gutterBottom>PDF 存储路径</Typography>
+            <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+              <TextField
+                sx={{ flex: 1 }}
+                value={localSettings.pdfStoragePath || '~/.research_dashboard'}
+                slotProps={{ input: { readOnly: true } }}
+                size="small"
+              />
+              <Button variant="outlined" size="small" startIcon={<FolderOpenIcon />} onClick={handleBrowsePath} sx={{ flexShrink: 0 }}>
+                浏览
+              </Button>
+            </Box>
+          </Box>
+        </Paper>
+
         {/* Theme Settings */}
         <Paper sx={{ p: 3, mb: 3 }}>
           <Typography variant="h6" gutterBottom>外观设置</Typography>

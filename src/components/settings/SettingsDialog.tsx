@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
   Dialog,
   DialogTitle,
@@ -33,6 +33,7 @@ import {
   DialogTitle as ConfirmDialogTitle,
   DialogContent as ConfirmDialogContent,
   DialogActions as ConfirmDialogActions,
+  CircularProgress,
 } from '@mui/material';
 import {
   Close as CloseIcon,
@@ -48,13 +49,15 @@ import {
   Storage as StorageIcon,
   Settings as SettingsIcon,
   SmartToy as SmartToyIcon,
-  Clear as ClearIcon,
   Chat as ChatIcon,
   Article as ArticleIcon,
   PictureAsPdf as PdfIcon,
   History as HistoryIcon,
+  SdStorage as SdStorageIcon,
 } from '@mui/icons-material';
 import { useTranslation } from 'react-i18next';
+import { invoke } from '@tauri-apps/api/core';
+import { open as showOpenDialog } from '@tauri-apps/plugin-dialog';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { useThemeMode, ThemePreference } from '../../app/ThemeProvider';
 import { useLanguageStore } from '../../stores/useLanguageStore';
@@ -91,31 +94,66 @@ export const SettingsDialog = ({ open, onClose }: SettingsDialogProps) => {
   const [cleanReadingMonths, setCleanReadingMonths] = useState(3);
   const [cleanArticleMonths, setCleanArticleMonths] = useState(3);
   const [cleanPdfMonths, setCleanPdfMonths] = useState(3);
+  const [diskUsage, setDiskUsage] = useState<{ totalGb: number; freeGb: number; appGb: number } | null>(null);
+  const [categorySizes, setCategorySizes] = useState<{
+    chatHistoryMb: number; readingHistoryMb: number;
+    articleDatabaseMb: number; pdfFilesMb: number; totalMb: number;
+  } | null>(null);
+  const [storageLoading, setStorageLoading] = useState(false);
 
   const appleDevice = isApplePlatform();
 
-  // Calculate storage breakdown
-  const storageBreakdown = useMemo(() => {
-    // Simulated storage sizes - in real app, these would be calculated from actual data
-    const chatHistorySize = Math.random() * 50 + 10; // 10-60 MB
-    const readingHistorySize = Math.random() * 20 + 5; // 5-25 MB
-    const articleDbSize = Math.random() * 100 + 30; // 30-130 MB
-    const pdfSize = Math.random() * 500 + 100; // 100-600 MB
+  // Fetch real storage data from backend
+  const fetchStorageData = useCallback(async () => {
+    setStorageLoading(true);
+    try {
+      const [disk, stats] = await Promise.all([
+        invoke<{ totalGb: number; freeGb: number; appGb: number }>('get_disk_usage'),
+        invoke<{ chatHistoryMb: number; readingHistoryMb: number; articleDatabaseMb: number; pdfFilesMb: number; totalMb: number }>('get_storage_stats'),
+      ]);
+      setDiskUsage(disk);
+      setCategorySizes(stats);
+    } catch (err) {
+      console.error('Failed to fetch storage data:', err);
+    } finally {
+      setStorageLoading(false);
+    }
+  }, []);
 
+  // Refresh data when dialog opens
+  useEffect(() => {
+    if (open) {
+      fetchStorageData();
+    }
+  }, [open, fetchStorageData]);
+
+  // Calculate storage breakdown from real data
+  const storageBreakdown = useMemo(() => {
     const formatSize = (mb: number) => {
       if (mb < 1) return `${(mb * 1024).toFixed(0)} KB`;
       if (mb >= 1024) return `${(mb / 1024).toFixed(1)} GB`;
       return `${mb.toFixed(1)} MB`;
     };
 
+    if (categorySizes) {
+      return {
+        chatHistory: { size: formatSize(categorySizes.chatHistoryMb), sizeMB: categorySizes.chatHistoryMb },
+        readingHistory: { size: formatSize(categorySizes.readingHistoryMb), sizeMB: categorySizes.readingHistoryMb },
+        articleDatabase: { size: formatSize(categorySizes.articleDatabaseMb), sizeMB: categorySizes.articleDatabaseMb },
+        pdfFiles: { size: formatSize(categorySizes.pdfFilesMb), sizeMB: categorySizes.pdfFilesMb },
+        total: formatSize(categorySizes.totalMb),
+      };
+    }
+
+    // Fallback while loading
     return {
-      chatHistory: { size: formatSize(chatHistorySize), sizeMB: chatHistorySize },
-      readingHistory: { size: formatSize(readingHistorySize), sizeMB: readingHistorySize },
-      articleDatabase: { size: formatSize(articleDbSize), sizeMB: articleDbSize },
-      pdfFiles: { size: formatSize(pdfSize), sizeMB: pdfSize },
-      total: formatSize(chatHistorySize + readingHistorySize + articleDbSize + pdfSize),
+      chatHistory: { size: '...', sizeMB: 1 },
+      readingHistory: { size: '...', sizeMB: 1 },
+      articleDatabase: { size: '...', sizeMB: 1 },
+      pdfFiles: { size: '...', sizeMB: 1 },
+      total: '...',
     };
-  }, [open]);
+  }, [categorySizes]);
 
   // Clean history handlers
   const handleCleanHistory = (type: 'chat' | 'reading' | 'article' | 'pdf') => {
@@ -128,8 +166,19 @@ export const SettingsDialog = ({ open, onClose }: SettingsDialogProps) => {
 
   const handleConfirmClean = async () => {
     const { type, months } = confirmDialogOpen;
-    // In real app, this would call the backend to clean the history
-    console.log(`Cleaning ${type} history older than ${months} months`);
+    try {
+      if (type === 'chat') {
+        await invoke('cleanup_chat_history', { months });
+      } else if (type === 'reading') {
+        await invoke('cleanup_reading_history', { months });
+      } else if (type === 'article' || type === 'pdf') {
+        await invoke('cleanup_articles_and_pdfs', { months });
+      }
+      // Refresh storage data after cleanup
+      await fetchStorageData();
+    } catch (err) {
+      console.error('Cleanup failed:', err);
+    }
     setConfirmDialogOpen({ open: false, type: 'chat', months: 3 });
   };
 
@@ -179,14 +228,23 @@ export const SettingsDialog = ({ open, onClose }: SettingsDialogProps) => {
   };
 
   const handleBrowsePath = async () => {
-    // In a Tauri app, this would use the Tauri dialog API
-    // For web, we simulate with a default path
-    // In production: const { filePath } = await window.__TAURI__.dialog.open({ directory: true });
-    const defaultPath = '~/.research_dashboard';
-    setLocalSettings({
-      ...localSettings,
-      pdfStoragePath: defaultPath,
-    });
+    try {
+      const selected = await showOpenDialog({
+        multiple: false,
+        directory: true,
+        title: t('settings.selectPdfFolder'),
+      });
+      if (selected) {
+        // Change PDF storage path via backend (moves files)
+        await invoke('change_pdf_storage_path', { newPath: selected });
+        setLocalSettings({
+          ...localSettings,
+          pdfStoragePath: selected,
+        });
+      }
+    } catch (err) {
+      console.error('Failed to select folder:', err);
+    }
   };
 
   const handleThemeChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -461,6 +519,66 @@ export const SettingsDialog = ({ open, onClose }: SettingsDialogProps) => {
         {/* Database Settings */}
         <Box id="section-storage" sx={{ mb: 3 }}>
           <Typography variant="subtitle1" gutterBottom sx={{ fontWeight: 600 }}>{t('settings.storage')}</Typography>
+
+          {/* Disk Usage Overview */}
+          <Box sx={{ mb: 3, p: 2, bgcolor: 'action.hover', borderRadius: 2 }}>
+            <Typography variant="body2" gutterBottom sx={{ fontWeight: 500, mb: 1.5 }}>
+              <SdStorageIcon sx={{ fontSize: 16, mr: 0.5, verticalAlign: 'text-top' }} />
+              {t('settings.diskUsage')}
+            </Typography>
+            {storageLoading || !diskUsage ? (
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <CircularProgress size={16} />
+                <Typography variant="body2" color="text.secondary">{t('common.loading')}</Typography>
+              </Box>
+            ) : (
+              <Box>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+                  <Typography variant="body2" color="text.secondary">{t('settings.totalDisk')}</Typography>
+                  <Typography variant="body2" sx={{ fontWeight: 500 }}>{diskUsage.totalGb.toFixed(1)} GB</Typography>
+                </Box>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+                  <Typography variant="body2" color="text.secondary">{t('settings.appUsage')}</Typography>
+                  <Typography variant="body2" sx={{ fontWeight: 500 }}>{diskUsage.appGb.toFixed(2)} GB</Typography>
+                </Box>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+                  <Typography variant="body2" color="text.secondary">{t('settings.freeSpace')}</Typography>
+                  <Typography variant="body2" sx={{ fontWeight: 500 }}>{diskUsage.freeGb.toFixed(1)} GB</Typography>
+                </Box>
+                {/* Three-color segmented bar */}
+                <Box sx={{ width: '100%', height: 10, borderRadius: 1, mt: 1, display: 'flex', gap: 0.25, overflow: 'hidden' }}>
+                  {(() => {
+                    const total = diskUsage.totalGb;
+                    if (total <= 0) return null;
+                    const otherPct = Math.max(0, ((total - diskUsage.freeGb - diskUsage.appGb) / total) * 100);
+                    const appPct = Math.max(0, (diskUsage.appGb / total) * 100);
+                    const freePct = Math.max(0, (diskUsage.freeGb / total) * 100);
+                    return (
+                      <>
+                        <Box sx={{ width: `${otherPct}%`, bgcolor: 'warning.main', borderRadius: 1, minWidth: otherPct > 0 ? 2 : 0 }} />
+                        <Box sx={{ width: `${appPct}%`, bgcolor: diskUsage.appGb / total > 0.8 ? 'error.main' : 'primary.main', borderRadius: 1, minWidth: appPct > 0 ? 2 : 0 }} />
+                        <Box sx={{ width: `${freePct}%`, bgcolor: 'grey.300', borderRadius: 1, minWidth: freePct > 0 ? 2 : 0 }} />
+                      </>
+                    );
+                  })()}
+                </Box>
+                <Box sx={{ display: 'flex', gap: 2, mt: 0.5 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                    <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: 'warning.main' }} />
+                    <Typography variant="caption" color="text.secondary">{t('settings.otherUsage')}</Typography>
+                  </Box>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                    <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: 'primary.main' }} />
+                    <Typography variant="caption" color="text.secondary">{t('settings.appUsage')}</Typography>
+                  </Box>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                    <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: 'grey.300' }} />
+                    <Typography variant="caption" color="text.secondary">{t('settings.freeSpace')}</Typography>
+                  </Box>
+                </Box>
+              </Box>
+            )}
+          </Box>
 
           {/* Storage Breakdown */}
           <Box sx={{ mb: 3 }}>
