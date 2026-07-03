@@ -11,10 +11,12 @@ mod controller;
 mod llm;
 mod settings;
 mod layout;
+mod crawler;
 
 // Imports
 use dao::{DbPool, ensure_database};
 use controller::*;
+use crawler::{CrawlerHandle, crawler_start, crawler_status, crawler_stop};
 use settings::{get_settings, save_settings, test_connection, copy_pdf_to_storage, get_pdf_dir, ensure_settings, ensure_pdfs_dir,
     get_disk_usage, get_storage_stats, cleanup_chat_history, cleanup_reading_history, cleanup_articles_and_pdfs, change_pdf_storage_path};
 use layout::{get_layout_config, save_layout_config};
@@ -22,6 +24,7 @@ use layout::{get_layout_config, save_layout_config};
 // Application state
 pub struct AppState {
     pub db_pool: DbPool,
+    pub crawler: CrawlerHandle,
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -33,7 +36,7 @@ fn run() {
 
     // Initialize database
     let db_pool = ensure_database().expect("Failed to initialize database");
-    let state = Arc::new(AppState { db_pool });
+    let state = Arc::new(AppState { db_pool, crawler: CrawlerHandle::new() });
 
     tauri::Builder::default()
         .plugin(tauri_plugin_store::Builder::new().build())
@@ -113,11 +116,61 @@ fn run() {
             daily_list,
             daily_detail,
             daily_recent,
+            // Crawler
+            crawler_start,
+            crawler_status,
+            crawler_stop,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
 
 fn main() {
+    // CLI mode: `cargo run -- --crawl` runs crawler standalone (no GUI)
+    let args: Vec<String> = std::env::args().collect();
+    if args.len() > 1 && args[1] == "--crawl" {
+        main_cli_crawl();
+        return;
+    }
+
     run()
+}
+
+/// Standalone CLI entry for the arxiv crawler (for testing / external scripts)
+fn main_cli_crawl() {
+    settings::ensure_data_dir().expect("Failed to create data directory");
+    settings::ensure_settings().expect("Failed to initialize settings");
+
+    let db_pool = dao::ensure_database().expect("Failed to initialize database");
+    let engine = crawler::engine::CrawlerEngine::new();
+
+    let rt = tokio::runtime::Runtime::new().expect("Failed to create runtime");
+    let result = rt.block_on(engine.run(&db_pool, |progress| {
+        // 每爬完一页输出一行进度
+        let page_info = if progress.pages_fetched > 0 {
+            format!("第 {} 页", progress.pages_fetched)
+        } else {
+            String::new()
+        };
+        println!("[{}/{}] {} {} — 累计 {} 篇, 新增 {} 篇",
+            progress.subject_index, progress.total_subjects,
+            progress.current_subject, page_info,
+            progress.articles_found, progress.articles_saved);
+    }));
+
+    println!();
+    match result {
+        Ok(res) => {
+            println!("爬取完成: 新增 {} 篇", res.articles_saved);
+            if !res.errors.is_empty() {
+                for e in &res.errors {
+                    eprintln!("[ERROR] {}", e);
+                }
+            }
+        }
+        Err(e) => {
+            eprintln!("爬取失败: {}", e);
+            std::process::exit(1);
+        }
+    }
 }

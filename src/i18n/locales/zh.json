@@ -275,6 +275,7 @@
     "darkMode": "深色模式",
     "language": "语言",
     "storage": "数据存储",
+    "crawler": "爬虫设置",
     "diskUsage": "磁盘空间占用",
     "totalDisk": "总磁盘空间",
     "appUsage": "本应用使用",

@@ -275,6 +275,7 @@
     "darkMode": "Dark Mode",
     "language": "Language",
     "storage": "Data Storage",
+    "crawler": "Crawler",
     "diskUsage": "Disk Usage",
     "totalDisk": "Total Disk Space",
     "appUsage": "App Usage",

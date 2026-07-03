@@ -29,6 +29,7 @@ import {
   ListItemIcon,
   ListItemText,
   LinearProgress,
+  Slider,
   Dialog as ConfirmDialog,
   DialogTitle as ConfirmDialogTitle,
   DialogContent as ConfirmDialogContent,
@@ -54,6 +55,7 @@ import {
   PictureAsPdf as PdfIcon,
   History as HistoryIcon,
   SdStorage as SdStorageIcon,
+  Edit as EditIcon,
 } from '@mui/icons-material';
 import { useTranslation } from 'react-i18next';
 import { invoke } from '@tauri-apps/api/core';
@@ -62,6 +64,8 @@ import { useSettingsStore } from '../../stores/useSettingsStore';
 import { useThemeMode, ThemePreference } from '../../app/ThemeProvider';
 import { useLanguageStore } from '../../stores/useLanguageStore';
 import { CloudProviderConfig, LocalProviderConfig, LocalProviderType, ModelConfig } from '../../types';
+import { CategorySelectDialog } from '../common/CategorySelectDialog';
+import { getCategoryByCode } from '../../constants/academicCategories';
 
 const generateId = () => Math.random().toString(36).substring(2, 9);
 
@@ -100,6 +104,19 @@ export const SettingsDialog = ({ open, onClose }: SettingsDialogProps) => {
     articleDatabaseMb: number; pdfFilesMb: number; totalMb: number;
   } | null>(null);
   const [storageLoading, setStorageLoading] = useState(false);
+  const [categoryDialogOpen, setCategoryDialogOpen] = useState(false);
+  const [crawlerStatus, setCrawlerStatus] = useState<{
+    running: boolean;
+    currentSubject: string;
+    subjectIndex: number;
+    totalSubjects: number;
+    pagesFetched: number;
+    articlesFound: number;
+    articlesSaved: number;
+    errors: string[];
+  } | null>(null);
+  const [crawlMessage, setCrawlMessage] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
+  const crawlPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const appleDevice = isApplePlatform();
 
@@ -186,6 +203,7 @@ export const SettingsDialog = ({ open, onClose }: SettingsDialogProps) => {
   const sections = [
     { id: 'appearance', label: t('settings.appearance'), icon: <PaletteIcon fontSize="small" /> },
     { id: 'storage', label: t('settings.storage'), icon: <StorageIcon fontSize="small" /> },
+    { id: 'crawl', label: t('settings.crawler'), icon: <CloudIcon fontSize="small" /> },
     { id: 'app', label: t('settings.appSettings'), icon: <SettingsIcon fontSize="small" /> },
     { id: 'llm', label: t('settings.llmSettings'), icon: <SmartToyIcon fontSize="small" />, children: [
       { id: 'llm-cloud', label: t('settings.cloudModels'), icon: <CloudIcon fontSize="small" /> },
@@ -245,6 +263,90 @@ export const SettingsDialog = ({ open, onClose }: SettingsDialogProps) => {
     } catch (err) {
       console.error('Failed to select folder:', err);
     }
+  };
+
+  // Crawler handlers
+  const handleCrawlNow = async () => {
+    try {
+      setCrawlMessage({ type: 'info', text: '正在启动爬虫...' });
+      const result = await invoke<string>('crawler_start');
+      setCrawlMessage({ type: 'info', text: result });
+      const status = await invoke<{
+        running: boolean; currentSubject: string; subjectIndex: number;
+        totalSubjects: number; pagesFetched: number; articlesFound: number;
+        articlesSaved: number; errors: string[];
+      }>('crawler_status');
+      setCrawlerStatus(status);
+    } catch (err) {
+      setCrawlMessage({ type: 'error', text: String(err) });
+    }
+  };
+
+  const handleCrawlStop = async () => {
+    try {
+      const result = await invoke<string>('crawler_stop');
+      setCrawlMessage({ type: 'info', text: result });
+    } catch (err) {
+      setCrawlMessage({ type: 'error', text: String(err) });
+    }
+  };
+
+  const pollCrawlerStatus = useCallback(async () => {
+    try {
+      const status = await invoke<{
+        running: boolean; currentSubject: string; subjectIndex: number;
+        totalSubjects: number; pagesFetched: number; articlesFound: number;
+        articlesSaved: number; errors: string[];
+      }>('crawler_status');
+      setCrawlerStatus(status);
+      if (!status.running) {
+        if (crawlPollRef.current) {
+          clearInterval(crawlPollRef.current);
+          crawlPollRef.current = null;
+        }
+        if (status.errors.length > 0) {
+          setCrawlMessage({ type: 'error', text: `爬取完成，但有 ${status.errors.length} 个错误` });
+        } else if (status.articlesSaved > 0) {
+          setCrawlMessage({ type: 'success', text: `爬取完成！新增 ${status.articlesSaved} 篇文章` });
+        } else {
+          setCrawlMessage({ type: 'info', text: '爬取完成，无新增文章' });
+        }
+      }
+    } catch (err) {
+      console.error('Failed to poll crawler status:', err);
+    }
+  }, []);
+
+  // Polling effect
+  useEffect(() => {
+    if (crawlerStatus?.running) {
+      if (!crawlPollRef.current) {
+        crawlPollRef.current = setInterval(pollCrawlerStatus, 2000);
+      }
+    }
+    return () => {
+      if (crawlPollRef.current) {
+        clearInterval(crawlPollRef.current);
+        crawlPollRef.current = null;
+      }
+    };
+  }, [crawlerStatus?.running, pollCrawlerStatus]);
+
+  // Check if crawler is already running on dialog open
+  useEffect(() => {
+    if (open) {
+      invoke<{
+        running: boolean; currentSubject: string; subjectIndex: number;
+        totalSubjects: number; pagesFetched: number; articlesFound: number;
+        articlesSaved: number; errors: string[];
+      }>('crawler_status').then((status) => {
+        if (status.running) setCrawlerStatus(status);
+      }).catch(console.error);
+    }
+  }, [open]);
+
+  const handleCategoriesChange = (categories: string[]) => {
+    setLocalSettings({ ...localSettings, crawlerCategories: categories });
   };
 
   const handleThemeChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -751,6 +853,79 @@ export const SettingsDialog = ({ open, onClose }: SettingsDialogProps) => {
 
         <Divider sx={{ my: 2 }} />
 
+        {/* Crawler Settings */}
+        <Box id="section-crawl" sx={{ mb: 3 }}>
+          <Typography variant="subtitle1" gutterBottom sx={{ fontWeight: 600 }}>爬虫设置</Typography>
+
+          <Box sx={{ mb: 2 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+              <Typography variant="body2" sx={{ fontWeight: 500 }}>爬取领域 ({localSettings.crawlerCategories.length} 个已选)</Typography>
+              <Button size="small" startIcon={<EditIcon />} onClick={() => setCategoryDialogOpen(true)}>编辑领域</Button>
+            </Box>
+            {localSettings.crawlerCategories.length === 0 ? (
+              <Typography variant="body2" color="text.secondary">暂无已选领域，请点击编辑领域添加</Typography>
+            ) : (
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                {localSettings.crawlerCategories.slice(0, 10).map((code) => {
+                  const cat = getCategoryByCode(code);
+                  return <Chip key={code} label={cat?.name || code} size="small" variant="outlined" />;
+                })}
+                {localSettings.crawlerCategories.length > 10 && (
+                  <Chip label={`+${localSettings.crawlerCategories.length - 10} 更多`} size="small" variant="outlined" />
+                )}
+              </Box>
+            )}
+          </Box>
+
+          <Box sx={{ mb: 2 }}>
+            <Typography variant="body2" gutterBottom sx={{ fontWeight: 500 }}>爬取频率: 每 {localSettings.crawlIntervalHours} 小时</Typography>
+            <Slider
+              value={localSettings.crawlIntervalHours}
+              onChange={(_, value) => setLocalSettings({ ...localSettings, crawlIntervalHours: value as number })}
+              min={1} max={24} step={1} marks valueLabelDisplay="auto" size="small"
+            />
+          </Box>
+
+          {localSettings.lastCrawlTime && (
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+              上次爬取: {localSettings.lastCrawlTime}
+            </Typography>
+          )}
+
+          {crawlerStatus?.running ? (
+            <Box sx={{ mb: 1.5, p: 1.5, bgcolor: 'action.hover', borderRadius: 1 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                <CircularProgress size={14} />
+                <Typography variant="body2" sx={{ fontWeight: 500 }}>爬虫运行中...</Typography>
+              </Box>
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.25, ml: 3 }}>
+                <Typography variant="caption" color="text.secondary">分类: {crawlerStatus.currentSubject || '等待中...'} ({crawlerStatus.subjectIndex}/{crawlerStatus.totalSubjects})</Typography>
+                <Typography variant="caption" color="text.secondary">已爬取 {crawlerStatus.pagesFetched} 页</Typography>
+                <Typography variant="caption" color="text.secondary">发现 {crawlerStatus.articlesFound} 篇, 新增 {crawlerStatus.articlesSaved} 篇</Typography>
+              </Box>
+            </Box>
+          ) : crawlerStatus && !crawlerStatus.running && crawlerStatus.articlesSaved > 0 ? (
+            <Box sx={{ mb: 1.5, p: 1.5, bgcolor: 'success.light', borderRadius: 1, color: 'success.contrastText' }}>
+              <Typography variant="body2">上次爬取完成: 新增 {crawlerStatus.articlesSaved} 篇</Typography>
+            </Box>
+          ) : null}
+
+          {crawlMessage && !crawlerStatus?.running && (
+            <Alert severity={crawlMessage.type} sx={{ mb: 1.5 }}>{crawlMessage.text}</Alert>
+          )}
+
+          <Box sx={{ display: 'flex', gap: 1 }}>
+            <Button variant="contained" size="small" startIcon={crawlerStatus?.running ? <CircularProgress size={14} color="inherit" /> : <CloudIcon />} onClick={handleCrawlNow} disabled={crawlerStatus?.running}>
+              {crawlerStatus?.running ? '爬取中...' : '现在爬取'}
+            </Button>
+            {crawlerStatus?.running && (
+              <Button variant="outlined" size="small" color="error" onClick={handleCrawlStop}>停止</Button>
+            )}
+          </Box>
+        </Box>
+
+        <Divider sx={{ my: 2 }} />
+
         {/* App Settings */}
         <Box id="section-app" sx={{ mb: 3 }}>
           <Typography variant="subtitle1" gutterBottom sx={{ fontWeight: 600 }}>{t('settings.appSettings')}</Typography>
@@ -971,6 +1146,12 @@ export const SettingsDialog = ({ open, onClose }: SettingsDialogProps) => {
           <Button variant="contained" color="error" onClick={handleConfirmClean}>{t('common.confirm')}</Button>
         </ConfirmDialogActions>
       </ConfirmDialog>
+      <CategorySelectDialog
+        open={categoryDialogOpen}
+        selectedCategories={localSettings.crawlerCategories}
+        onClose={() => setCategoryDialogOpen(false)}
+        onSave={handleCategoriesChange}
+      />
     </Dialog>
   );
 };

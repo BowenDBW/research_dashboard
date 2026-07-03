@@ -42,3 +42,7 @@ tauri-plugin-shell = "2"
 
 # Filesystem utilities
 fs2 = "0.4"
+
+# HTML parsing (for arxiv crawler - equivalent to BeautifulSoup)
+scraper = "0.21"
+regex = "1"
