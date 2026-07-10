@@ -1,5 +1,6 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { invoke } from '@tauri-apps/api/core';
 import {
   Box,
   Accordion,
@@ -79,7 +80,6 @@ import { AbstractDialog } from '../article/AbstractDialog';
 import { CategorySelectDialog } from '../common/CategorySelectDialog';
 import { FavoriteItem, Article, HeatmapCell } from '../../types';
 import { MonthlyHeatmap } from '../stats/MonthlyHeatmap';
-import { getCategoryByCode } from '../../constants/academicCategories';
 import { useTranslation } from 'react-i18next';
 
 interface RightToolbarProps {
@@ -291,6 +291,56 @@ export const RightToolbar = ({ open, onToggle }: RightToolbarProps) => {
 
   // Category dialog state
   const [categoryDialogOpen, setCategoryDialogOpen] = useState(false);
+
+  // Crawler running state and status type
+  interface CrawlerStatus {
+    running: boolean;
+    currentSubject: string;
+    subjectIndex: number;
+    totalSubjects: number;
+    pagesFetched: number;
+    articlesFound: number;
+    articlesSaved: number;
+    errors: string[];
+  }
+  const [crawlerRunning, setCrawlerRunning] = useState(false);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Start polling crawler status
+  const startCrawlPolling = useCallback(() => {
+    if (pollRef.current) return;
+    pollRef.current = setInterval(async () => {
+      try {
+        const status = await invoke<CrawlerStatus>('crawler_status');
+        if (!status.running) {
+          if (pollRef.current) {
+            clearInterval(pollRef.current);
+            pollRef.current = null;
+          }
+          setCrawlerRunning(false);
+          // Update lastCrawlTime directly with current server time
+          updateSettings({ lastCrawlTime: new Date().toISOString() });
+        }
+      } catch (err) {
+        console.error('Failed to check crawler status', err);
+        if (pollRef.current) {
+          clearInterval(pollRef.current);
+          pollRef.current = null;
+        }
+        setCrawlerRunning(false);
+      }
+    }, 2000);
+  }, [updateSettings]);
+
+  // Cleanup polling on unmount
+  useEffect(() => {
+    return () => {
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+    };
+  }, []);
 
   // Quick preview dialog state (for collapsed toolbar)
   const [quickPreviewPanel, setQuickPreviewPanel] = useState<PanelId | null>(null);
@@ -525,43 +575,6 @@ export const RightToolbar = ({ open, onToggle }: RightToolbarProps) => {
 
             <Divider />
 
-            {/* Crawler Categories */}
-            <Box>
-              <Typography variant="body2" sx={{ mb: 0.5, fontWeight: 500 }}>
-                {t('rightToolbar.crawlCategories')} ({settings.crawlerCategories.length} {t('rightToolbar.categoriesSelected')})
-              </Typography>
-              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, maxHeight: 80, overflow: 'auto' }}>
-                {settings.crawlerCategories.slice(0, 6).map((code) => {
-                  const cat = getCategoryByCode(code);
-                  return (
-                    <Chip
-                      key={code}
-                      label={cat?.name || code}
-                      size="small"
-                      variant="outlined"
-                      sx={{ height: 20, fontSize: '0.65rem' }}
-                    />
-                  );
-                })}
-                {settings.crawlerCategories.length > 6 && (
-                  <Chip
-                    label={`+${settings.crawlerCategories.length - 6}`}
-                    size="small"
-                    variant="outlined"
-                    sx={{ height: 20, fontSize: '0.65rem' }}
-                  />
-                )}
-              </Box>
-              <Button
-                size="small"
-                startIcon={<EditIcon />}
-                onClick={() => setCategoryDialogOpen(true)}
-                sx={{ mt: 0.5, fontSize: '0.7rem' }}
-              >
-                {t('rightToolbar.editCategories')}
-              </Button>
-            </Box>
-
             {/* Crawl Interval */}
             <Box>
               <Typography variant="body2" sx={{ mb: 0.5, fontWeight: 500 }}>
@@ -585,13 +598,19 @@ export const RightToolbar = ({ open, onToggle }: RightToolbarProps) => {
               size="small"
               startIcon={<RefreshIcon />}
               fullWidth
+              disabled={crawlerRunning}
               sx={{ mt: 0.5 }}
-              onClick={() => {
-                // Simulate an update to the last crawl time when clicking Refresh
-                updateSettings({ lastCrawlTime: new Date().toISOString().slice(0, 16).replace('T', ' ') });
+              onClick={async () => {
+                try {
+                  await invoke('crawler_start');
+                  setCrawlerRunning(true);
+                  startCrawlPolling();
+                } catch (err) {
+                  console.error('Failed to start crawler', err);
+                }
               }}
             >
-              {t('rightToolbar.crawlNow')}
+              {crawlerRunning ? t('rightToolbar.crawling') || '爬取中...' : t('rightToolbar.crawlNow')}
             </Button>
           </Box>
         );

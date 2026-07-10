@@ -452,7 +452,7 @@ fn parse_article_page(html: &str, url: &str, subject: &str) -> Result<Option<Cra
 }
 
 /// Get last crawl date from settings.json
-fn get_last_crawl_date() -> Option<String> {
+pub fn get_last_crawl_date() -> Option<String> {
     let settings = ensure_settings().ok()?;
     settings.get("lastCrawlTime")?.as_str().map(|s| s.to_string())
 }

@@ -530,6 +530,18 @@ const SettingsPage = () => {
             />
           </Box>
 
+          {settings.lastCrawlTime && (
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              上次爬取时间: {new Date(settings.lastCrawlTime).toLocaleString('zh-CN', {
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+              })}
+            </Typography>
+          )}
+
           <Box sx={{ mb: 2 }}>
             <Typography variant="subtitle2" gutterBottom>PDF 存储路径</Typography>
             <Box sx={{ display: 'flex', gap: 1 }}>

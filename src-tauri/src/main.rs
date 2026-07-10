@@ -16,7 +16,7 @@ mod crawler;
 // Imports
 use dao::{DbPool, ensure_database};
 use controller::*;
-use crawler::{CrawlerHandle, crawler_start, crawler_status, crawler_stop};
+use crawler::{CrawlerHandle, crawler_start, crawler_status, crawler_stop, start_crawl_scheduler};
 use settings::{get_settings, save_settings, test_connection, copy_pdf_to_storage, get_pdf_dir, ensure_settings, ensure_pdfs_dir,
     get_disk_usage, get_storage_stats, cleanup_chat_history, cleanup_reading_history, cleanup_articles_and_pdfs, change_pdf_storage_path};
 use layout::{get_layout_config, save_layout_config};
@@ -36,7 +36,16 @@ fn run() {
 
     // Initialize database
     let db_pool = ensure_database().expect("Failed to initialize database");
-    let state = Arc::new(AppState { db_pool, crawler: CrawlerHandle::new() });
+    let crawler = CrawlerHandle::new();
+
+    // Clone for the scheduler (will be moved into its own thread)
+    let scheduler_db_pool = db_pool.clone();
+    let scheduler_crawler = crawler.clone();
+
+    let state = Arc::new(AppState { db_pool, crawler });
+
+    // Start the scheduled crawler background task (in its own thread with its own Tokio runtime)
+    start_crawl_scheduler(scheduler_db_pool, scheduler_crawler);
 
     tauri::Builder::default()
         .plugin(tauri_plugin_store::Builder::new().build())
