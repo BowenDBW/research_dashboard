@@ -60,7 +60,7 @@ pub struct PaperQueryParams {
     pub sources: Option<Vec<String>>,
     /// Domain filter (from subscribed categories when arxiv switch on)
     pub domains: Option<Vec<String>>,
-    /// Subscription filter: limit to subscribed categories + match subscribed keywords/authors
+    /// Subscription filter: limit to subscribed categories + match subscribed authors（文章列表"作者"按钮）
     pub subscribed_only: bool,
 }
 

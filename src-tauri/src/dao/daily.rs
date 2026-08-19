@@ -122,11 +122,14 @@ pub fn get_recent_recommendations(conn: &DbConnection, limit: i32) -> Result<Vec
     Ok(items)
 }
 
-/// Add a daily recommendation
-pub fn add_daily_recommendation(conn: &DbConnection, article_id: i64, source: &str) -> Result<(), String> {
+/// Add a daily recommendation.
+/// `recommended_at` 是文章被推荐的时间；对 Gmail Scholar Alert 就是邮件发送日期。
+/// 存入 created_at 列，供前端按日期分组展示 —— 分组时间必须与邮件发送时间一致，
+/// 而不是同步/爬取时间。
+pub fn add_daily_recommendation(conn: &DbConnection, article_id: i64, source: &str, recommended_at: &str) -> Result<(), String> {
     conn.execute(
-        "INSERT OR IGNORE INTO daily_recommendations (article_id, source) VALUES (?, ?)",
-        params![article_id, source]
+        "INSERT OR IGNORE INTO daily_recommendations (article_id, source, created_at) VALUES (?, ?, ?)",
+        params![article_id, source, recommended_at]
     ).map_err(|e| format!("添加推荐失败: {}", e))?;
 
     Ok(())

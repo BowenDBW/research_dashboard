@@ -2,7 +2,7 @@
 // Core crawling logic: fetches arXiv listing pages, parses article details, stores to DB
 // Ported from Python version at arxiv_crawler_light
 
-use chrono::{DateTime, Duration, NaiveDateTime, Utc};
+use chrono::{DateTime, Duration, FixedOffset, NaiveDate, NaiveDateTime, Utc};
 use regex::Regex;
 use reqwest::Client;
 use scraper::{Html, Selector};
@@ -77,23 +77,24 @@ impl CrawlerEngine {
             return Err("没有已订阅的分类，请在订阅管理中添加 arXiv 分类".to_string());
         }
 
-        // Get last run date from settings
-        let last_run_date = get_last_crawl_date();
+        // Get last run time from settings (full timestamp or legacy date)
+        let last_run = get_last_crawl_date().and_then(|s| parse_last_crawl_time(&s));
         let utc_plus_8 = Utc::now() + Duration::hours(8);
 
-        // Check if already ran today (UTC+8)
-        if let Some(last_run) = &last_run_date {
-            let today = utc_plus_8.format("%Y-%m-%d").to_string();
-            if *last_run == today {
-                return Err(format!("今天已经在 {} 运行过了，跳过", today));
+        // 反重复保护：上次爬取在 5 分钟内则跳过，防止手动+定时同时触发。
+        // 爬取频率由调度器按 crawlIntervalHours 控制，不再限定"一天一次"。
+        if let Some(last) = last_run {
+            let elapsed = (Utc::now() - last).num_seconds().max(0);
+            if elapsed < 300 {
+                return Err(format!("上次爬取刚结束（{} 秒前），跳过", elapsed));
             }
         }
 
         // 阈值计算：last_run - 2天，但不超过 today - 30天
         let max_threshold = (utc_plus_8 - Duration::days(30)).date_naive();
-        let last_run_date_minus_two = last_run_date.as_ref()
-            .and_then(|s| NaiveDateTime::parse_from_str(&format!("{} 00:00:00", s), "%Y-%m-%d %H:%M:%S").ok())
-            .map(|d| d.date() - Duration::days(2))
+        let last_run_date_minus_two = last_run
+            .map(|t| (t + Duration::hours(8)).date_naive())   // 转成 UTC+8 日期
+            .map(|d| d - Duration::days(2))
             .map(|d| if d < max_threshold { max_threshold } else { d })
             .or(Some(max_threshold));
 
@@ -121,9 +122,8 @@ impl CrawlerEngine {
             }
         }
 
-        // Update last run date
-        let today_str = utc_plus_8.format("%Y-%m-%d").to_string();
-        update_last_crawl_date(&today_str)?;
+        // Update last run time (full UTC+8 timestamp)
+        update_last_crawl_time(&utc_plus_8)?;
 
         Ok(CrawlResult {
             articles_saved: total_saved,
@@ -451,17 +451,43 @@ fn parse_article_page(html: &str, url: &str, subject: &str) -> Result<Option<Cra
     Ok(Some(article))
 }
 
-/// Get last crawl date from settings.json
+/// Get last crawl time from settings.json (raw string, could be timestamp or legacy date)
 pub fn get_last_crawl_date() -> Option<String> {
     let settings = ensure_settings().ok()?;
     settings.get("lastCrawlTime")?.as_str().map(|s| s.to_string())
 }
 
-/// Update last crawl date in settings.json
-fn update_last_crawl_date(date: &str) -> Result<(), String> {
+/// 解析 settings 中的 lastCrawlTime，兼容三种格式（统一转为 UTC 时刻）：
+/// 1. RFC3339 / 带时区 ISO：2026-08-17T21:42:00+08:00（新格式）或 ...Z（历史上前端误写入）
+/// 2. Naive datetime：2026-08-17T21:42:00（视为 UTC+8）
+/// 3. 旧版仅日期：2026-08-17（视为 UTC+8 当天 00:00）
+pub fn parse_last_crawl_time(raw: &str) -> Option<DateTime<Utc>> {
+    use chrono::TimeZone;
+    // 1. RFC3339 / 带时区 ISO
+    if let Ok(dt) = DateTime::parse_from_rfc3339(raw) {
+        return Some(dt.with_timezone(&Utc));
+    }
+    let tz8 = FixedOffset::east_opt(8 * 3600)?;
+    // 2. Naive datetime（视为 UTC+8）
+    if let Ok(dt) = NaiveDateTime::parse_from_str(raw, "%Y-%m-%dT%H:%M:%S") {
+        return tz8.from_local_datetime(&dt).single().map(|d| d.with_timezone(&Utc));
+    }
+    // 3. 旧版仅日期（UTC+8 00:00）
+    if let Ok(d) = NaiveDate::parse_from_str(raw, "%Y-%m-%d") {
+        return d.and_hms_opt(0, 0, 0)
+            .and_then(|ndt| tz8.from_local_datetime(&ndt).single())
+            .map(|d| d.with_timezone(&Utc));
+    }
+    None
+}
+
+/// Update last crawl time in settings.json (full UTC+8 timestamp)
+fn update_last_crawl_time(utc8: &DateTime<Utc>) -> Result<(), String> {
     let mut settings = ensure_settings()?;
     if let Some(obj) = settings.as_object_mut() {
-        obj.insert("lastCrawlTime".to_string(), serde_json::Value::String(date.to_string()));
+        let tz8 = FixedOffset::east_opt(8 * 3600).ok_or("无效时区偏移")?;
+        let s = utc8.with_timezone(&tz8).format("%Y-%m-%dT%H:%M:%S%:z").to_string();
+        obj.insert("lastCrawlTime".to_string(), serde_json::Value::String(s));
     }
     save_settings(settings)?;
     Ok(())

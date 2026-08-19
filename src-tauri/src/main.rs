@@ -12,6 +12,7 @@ mod llm;
 mod settings;
 mod layout;
 mod crawler;
+mod gmail;
 
 // Imports
 use dao::{DbPool, ensure_database};
@@ -20,11 +21,17 @@ use crawler::{CrawlerHandle, crawler_start, crawler_status, crawler_stop, start_
 use settings::{get_settings, save_settings, test_connection, copy_pdf_to_storage, get_pdf_dir, ensure_settings, ensure_pdfs_dir,
     get_disk_usage, get_storage_stats, cleanup_chat_history, cleanup_reading_history, cleanup_articles_and_pdfs, change_pdf_storage_path};
 use layout::{get_layout_config, save_layout_config};
+use gmail::{
+    GmailSyncHandle, gmail_authorize, gmail_auth_status, gmail_logout, gmail_sync,
+    gmail_sync_status, gmail_sync_stop,
+    start_gmail_scheduler,
+};
 
 // Application state
 pub struct AppState {
     pub db_pool: DbPool,
     pub crawler: CrawlerHandle,
+    pub gmail: GmailSyncHandle,
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -37,15 +44,15 @@ fn run() {
     // Initialize database
     let db_pool = ensure_database().expect("Failed to initialize database");
     let crawler = CrawlerHandle::new();
+    let gmail = GmailSyncHandle::new();
 
-    // Clone for the scheduler (will be moved into its own thread)
+    // Clone for the schedulers (will be moved into their own threads)
     let scheduler_db_pool = db_pool.clone();
     let scheduler_crawler = crawler.clone();
+    let gmail_scheduler_db_pool = db_pool.clone();
+    let gmail_scheduler_handle = gmail.clone();
 
-    let state = Arc::new(AppState { db_pool, crawler });
-
-    // Start the scheduled crawler background task (in its own thread with its own Tokio runtime)
-    start_crawl_scheduler(scheduler_db_pool, scheduler_crawler);
+    let state = Arc::new(AppState { db_pool, crawler, gmail });
 
     tauri::Builder::default()
         .plugin(tauri_plugin_store::Builder::new().build())
@@ -53,6 +60,14 @@ fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_shell::init())
+        .setup(|app| {
+            let app_handle = app.handle().clone();
+            // Start the scheduled crawler background task
+            start_crawl_scheduler(scheduler_db_pool, scheduler_crawler, app_handle.clone());
+            // Start the Gmail scheduler background task
+            start_gmail_scheduler(gmail_scheduler_db_pool, gmail_scheduler_handle);
+            Ok(())
+        })
         .manage(state)
         .invoke_handler(tauri::generate_handler![
             // Settings
@@ -121,6 +136,9 @@ fn run() {
             chat_delete_session,
             chat_get_sessions,
             chat_send_message,
+            chat_attach_pdf,
+            chat_attach_arxiv,
+            chat_clear_context,
             // Daily
             daily_list,
             daily_detail,
@@ -129,6 +147,13 @@ fn run() {
             crawler_start,
             crawler_status,
             crawler_stop,
+            // Gmail
+            gmail_authorize,
+            gmail_auth_status,
+            gmail_logout,
+            gmail_sync,
+            gmail_sync_status,
+            gmail_sync_stop,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -141,8 +166,107 @@ fn main() {
         main_cli_crawl();
         return;
     }
+    // CLI mode: `cargo run -- --gmail-prototype` validates Gmail Scholar Alert crawling
+    if args.len() > 1 && args[1] == "--gmail-prototype" {
+        main_gmail_prototype();
+        return;
+    }
 
     run()
+}
+
+/// Standalone prototype validation for Gmail Scholar Alert crawling.
+/// 只爬 Google Scholar (scholaralerts-noreply@google.com) 近 90 天邮件，
+/// 打印数量、样本与 DB 论文匹配情况，用于验证同步链路。
+fn main_gmail_prototype() {
+    use crate::gmail::client::{get_message, search_messages};
+    use crate::gmail::parser::parse_scholar_email;
+
+    let rt = tokio::runtime::Runtime::new().expect("Failed to create runtime");
+    rt.block_on(async {
+        let settings = crate::settings::ensure_settings().expect("读取设置失败");
+        let cid = settings["gmail"]["clientId"].as_str().unwrap_or("").to_string();
+        let csec = settings["gmail"]["clientSecret"].as_str().unwrap_or("").to_string();
+        if cid.is_empty() || csec.is_empty() {
+            eprintln!("Gmail 未配置 clientId/clientSecret");
+            return;
+        }
+
+        println!("==> 获取访问令牌...");
+        let token = match crate::gmail::auth::get_access_token(&cid, &csec).await {
+            Ok(t) => t,
+            Err(e) => { eprintln!("获取令牌失败: {}", e); return; }
+        };
+        println!("==> 令牌获取成功");
+
+        let three_months_ago = chrono::Utc::now() - chrono::TimeDelta::days(90);
+        let date_str = three_months_ago.format("%Y/%m/%d").to_string();
+        let search_query = format!("from:scholaralerts-noreply@google.com after:{}", date_str);
+        println!("==> 搜索: {}", search_query);
+        let search_result = match search_messages(&token, &search_query, 100).await {
+            Ok(r) => r,
+            Err(e) => { eprintln!("搜索失败: {}", e); return; }
+        };
+        let messages = search_result.messages.unwrap_or_default();
+        println!("==> 搜索到 {} 封邮件 (resultSizeEstimate={:?})",
+            messages.len(), search_result.result_size_estimate);
+
+        let pool = crate::dao::ensure_database().expect("打开数据库失败");
+        let conn = pool.get().expect("获取数据库连接失败");
+        let mut total_articles = 0;
+        let mut empty_scholar: Vec<String> = Vec::new();
+        let mut subject_styles: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+        for (i, msg) in messages.iter().enumerate() {
+            match get_message(&token, &msg.id, "full").await {
+                Ok(detail) => {
+                    if let Some(payload) = &detail.payload {
+                        match parse_scholar_email(&msg.id, payload, detail.snippet.as_deref().unwrap_or("")) {
+                            Ok(parsed) => {
+                                // 按"标题后半段"归类标题风格，便于对比
+                                let subject = parsed.subject.clone();
+                                let style = subject.split_whitespace().skip(1).collect::<Vec<_>>().join(" ");
+                                *subject_styles.entry(style).or_insert(0) += 1;
+                                total_articles += parsed.articles.len();
+                                println!("[{}/{}] scholar={:?} | 文章={} | 标题={:?}",
+                                    i + 1, messages.len(), parsed.scholar_name, parsed.articles.len(), subject);
+                                if parsed.scholar_name.is_empty() {
+                                    empty_scholar.push(subject);
+                                }
+                                // 抽查前几篇的 arxiv 匹配情况
+                                if i < 3 {
+                                    for a in &parsed.articles {
+                                        let by_arxiv = a.arxiv_id.as_ref()
+                                            .and_then(|aid| crate::dao::papers::find_paper_by_arxiv(&conn, aid).ok().flatten());
+                                        let by_title = if by_arxiv.is_none() {
+                                            crate::dao::papers::find_paper_by_title(&conn, &a.title).ok().flatten()
+                                        } else { None };
+                                        println!("      - \"{}\" arxiv={:?} -> DB: arxiv={:?} title={:?}",
+                                            a.title, a.arxiv_id, by_arxiv, by_title);
+                                    }
+                                }
+                            }
+                            Err(e) => println!("[{}/{}] 解析失败: {}", i + 1, messages.len(), e),
+                        }
+                    }
+                }
+                Err(e) => println!("[{}/{}] 获取邮件失败: {}", i + 1, messages.len(), e),
+            }
+        }
+        println!("\n==> 共提取 {} 篇文章 / {} 封邮件", total_articles, messages.len());
+        println!("==> scholar 名解析为空的邮件数: {}", empty_scholar.len());
+        if !empty_scholar.is_empty() {
+            println!("    -- 解析失败的标题 --");
+            for s in &empty_scholar {
+                println!("    {:?}", s);
+            }
+        }
+        println!("==> 标题风格分布:");
+        let mut styles: Vec<_> = subject_styles.into_iter().collect();
+        styles.sort_by(|a, b| b.1.cmp(&a.1));
+        for (style, count) in styles {
+            println!("    [{}]  {}", count, style);
+        }
+    });
 }
 
 /// Standalone CLI entry for the arxiv crawler (for testing / external scripts)
@@ -155,7 +279,6 @@ fn main_cli_crawl() {
 
     let rt = tokio::runtime::Runtime::new().expect("Failed to create runtime");
     let result = rt.block_on(engine.run(&db_pool, |progress| {
-        // 每爬完一页输出一行进度
         let page_info = if progress.pages_fetched > 0 {
             format!("第 {} 页", progress.pages_fetched)
         } else {

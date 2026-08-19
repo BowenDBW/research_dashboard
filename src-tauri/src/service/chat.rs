@@ -3,7 +3,8 @@
 
 use crate::dao::{DbConnection};
 use crate::dao::chat::*;
-use crate::models::{CreateSessionRequest, SendMessageRequest, ChatSession, ChatMessage, FrontendChatSession, FrontendChatMessage};
+use crate::dao::papers::get_paper_by_id;
+use crate::models::{CreateSessionRequest, SendMessageRequest, ChatSession, ChatMessage, FrontendChatSession, FrontendChatMessage, FrontendArticle};
 
 /// Convert database ChatSession to frontend format
 fn session_to_frontend(session: ChatSession) -> FrontendChatSession {
@@ -23,15 +24,29 @@ fn session_to_frontend(session: ChatSession) -> FrontendChatSession {
     }
 }
 
+/// 加载消息关联的文章（检索结果；普通消息为空）
+fn load_articles_for_message(conn: &DbConnection, message_id: i64) -> Result<Vec<FrontendArticle>, String> {
+    let ids = get_message_article_ids(conn, message_id)?;
+    let mut articles = Vec::new();
+    for id in ids {
+        if let Ok(paper) = get_paper_by_id(conn, id) {
+            articles.push(paper.into());
+        }
+    }
+    Ok(articles)
+}
+
 /// Convert database ChatMessage to frontend format
-fn message_to_frontend(msg: ChatMessage) -> FrontendChatMessage {
-    FrontendChatMessage {
+fn message_to_frontend(conn: &DbConnection, msg: ChatMessage) -> Result<FrontendChatMessage, String> {
+    let articles = load_articles_for_message(conn, msg.message_id)?;
+    Ok(FrontendChatMessage {
         id: msg.message_id.to_string(),
         session_id: msg.session_id.to_string(),
         role: msg.role,
         content: msg.content,
         timestamp: msg.created_at.unwrap_or_default(),
-    }
+        articles,
+    })
 }
 
 /// Create session - returns frontend format
@@ -49,7 +64,7 @@ pub fn get_chat_session(conn: &DbConnection, session_id: i64) -> Result<Frontend
 /// Get session messages - returns frontend format
 pub fn get_session_messages_list(conn: &DbConnection, session_id: i64) -> Result<Vec<FrontendChatMessage>, String> {
     let messages = get_session_messages(conn, session_id)?;
-    Ok(messages.into_iter().map(message_to_frontend).collect())
+    messages.into_iter().map(|m| message_to_frontend(conn, m)).collect()
 }
 
 /// Delete session
@@ -68,5 +83,5 @@ pub fn add_message_to_session(conn: &DbConnection, session_id: i64, req: &SendMe
     // Determine role: if model_id is set, it's assistant; otherwise user
     let role = if req.model_id.is_some() { "assistant" } else { "user" };
     let msg = add_message(conn, session_id, role, &req.content)?;
-    Ok(message_to_frontend(msg))
+    message_to_frontend(conn, msg)
 }

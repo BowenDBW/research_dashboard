@@ -4,10 +4,13 @@
 use std::sync::Arc;
 use crate::AppState;
 use crate::service::chat::*;
-use crate::models::{CreateSessionRequest, FrontendChatSession, FrontendChatMessage, SendMessageRequest, SendMessageResponse};
+use crate::models::{CreateSessionRequest, FrontendChatSession, FrontendChatMessage, SendMessageRequest, SendMessageResponse, AttachPdfResult, FrontendArticle};
 use crate::llm::{send_chat_message, generate_session_title, ChatMessage, MessageRole};
 use crate::settings::ensure_settings;
-use crate::dao::chat::update_session_title;
+use crate::dao::chat::{update_session_title, update_session_context, clear_session_context, get_session_by_id, add_message_article};
+use crate::dao::papers::get_paper_by_id;
+use crate::service::paper_search;
+use crate::dao::DbConnection;
 use tauri::{State, AppHandle, Emitter};
 
 /// Create a new chat session
@@ -80,8 +83,113 @@ pub async fn chat_get_sessions(
     Ok(sessions)
 }
 
+/// 解析 PDF 文件文本（较重，放到阻塞线程执行）
+async fn parse_pdf_text(file_path: &str) -> Result<String, String> {
+    let p = file_path.to_string();
+    tauri::async_runtime::spawn_blocking(move || {
+        pdf_extract::extract_text(&p).map_err(|e| format!("PDF 解析失败: {}", e))
+    }).await.map_err(|e| format!("PDF 解析任务异常: {}", e))?
+}
+
+/// 截断过长的文本、存入会话上下文并构造返回结果
+fn store_context_and_build_result(
+    conn: &DbConnection,
+    session_id: i64,
+    text: String,
+) -> Result<AttachPdfResult, String> {
+    // 论文正文可能非常大，避免撑爆数据库和 prompt
+    const MAX_CONTEXT_CHARS: usize = 200_000;
+    let stored: String = if text.chars().count() > MAX_CONTEXT_CHARS {
+        text.chars().take(MAX_CONTEXT_CHARS).collect()
+    } else {
+        text
+    };
+
+    update_session_context(conn, session_id, &stored)?;
+
+    let preview: String = stored.chars().take(200).collect();
+    Ok(AttachPdfResult {
+        char_count: stored.chars().count() as i64,
+        preview,
+    })
+}
+
+/// 上传并解析文章 PDF，把文本存入会话作为对话上下文。
+/// 返回解析出的字符数和前 200 字预览。
+#[tauri::command]
+pub async fn chat_attach_pdf(
+    state: State<'_, Arc<AppState>>,
+    session_id: i64,
+    file_path: String,
+) -> Result<AttachPdfResult, String> {
+    let conn = state.db_pool.get()
+        .map_err(|e| format!("获取数据库连接失败: {}", e))?;
+
+    let path = std::path::PathBuf::from(&file_path);
+    if !path.exists() {
+        return Err(format!("文件不存在: {}", file_path));
+    }
+
+    let text = parse_pdf_text(&file_path).await?;
+    store_context_and_build_result(&conn, session_id, text)
+}
+
+/// 从库内文章用 arXiv 链接下载 PDF 解析为对话上下文。
+/// 解析完成后删除临时 PDF，不占用本地磁盘空间。
+#[tauri::command]
+pub async fn chat_attach_arxiv(
+    state: State<'_, Arc<AppState>>,
+    session_id: i64,
+    article_id: i64,
+) -> Result<AttachPdfResult, String> {
+    let conn = state.db_pool.get()
+        .map_err(|e| format!("获取数据库连接失败: {}", e))?;
+
+    let paper = get_paper_by_id(&conn, article_id)?;
+    let arxiv_id = paper.preprint_number.clone()
+        .filter(|s| !s.is_empty())
+        .ok_or("该文章没有 arXiv 编号，无法下载 PDF")?;
+
+    // 1. 下载 PDF
+    let url = format!("https://arxiv.org/pdf/{}", arxiv_id);
+    println!("[对话] 下载 arXiv PDF: {}", url);
+    let client = reqwest::Client::new();
+    let resp = client.get(&url).send().await.map_err(|e| format!("下载 PDF 失败: {}", e))?;
+    if !resp.status().is_success() {
+        return Err(format!("下载 PDF 失败: HTTP {}", resp.status()));
+    }
+    let bytes = resp.bytes().await.map_err(|e| format!("读取 PDF 失败: {}", e))?;
+
+    // 2. 写到临时文件
+    let tmp_name = format!("chat_attach_{}.pdf", arxiv_id.replace(['/', '.'], "_"));
+    let tmp_path = std::env::temp_dir().join(tmp_name);
+    std::fs::write(&tmp_path, &bytes).map_err(|e| format!("写入临时 PDF 失败: {}", e))?;
+
+    // 3. 解析
+    let text = parse_pdf_text(&tmp_path.to_string_lossy()).await?;
+
+    // 4. 用完即删，不占用本地磁盘空间
+    let _ = std::fs::remove_file(&tmp_path);
+
+    store_context_and_build_result(&conn, session_id, text)
+}
+
+/// 移除会话附加的文章 PDF 上下文
+#[tauri::command]
+pub async fn chat_clear_context(
+    state: State<'_, Arc<AppState>>,
+    session_id: i64,
+) -> Result<(), String> {
+    let conn = state.db_pool.get()
+        .map_err(|e| format!("获取数据库连接失败: {}", e))?;
+    clear_session_context(&conn, session_id)
+}
+
 /// Send a message and get AI response
-/// If this is the first message in the session, generates a title in background
+/// 根据会话 mode 分发：
+///   - "paper_search"：LLM 提取关键词 + BM25 检索，返回可点击的文章列表
+///   - 其他（chat）：普通对话；若会话附加了文章 PDF（context_text），文本放到对话开头作为上下文
+/// 首条消息时在后台生成会话标题
 #[tauri::command]
 pub async fn chat_send_message(
     app_handle: AppHandle,
@@ -93,50 +201,92 @@ pub async fn chat_send_message(
     let conn = state.db_pool.get()
         .map_err(|e| format!("获取数据库连接失败: {}", e))?;
 
-    // Get existing messages for context
+    let session = get_session_by_id(&conn, session_id)?;
     let existing_messages = get_session_messages_list(&conn, session_id)?;
     let is_first_message = existing_messages.is_empty();
 
-    // Convert to LLM message format
-    let mut llm_messages: Vec<ChatMessage> = existing_messages
-        .iter()
-        .map(|m| ChatMessage {
-            role: match m.role.as_str() {
-                "user" => MessageRole::User,
-                "assistant" => MessageRole::Assistant,
-                _ => MessageRole::User,
-            },
-            content: m.content.clone(),
-        })
-        .collect();
-
-    // Add the new user message
-    llm_messages.push(ChatMessage {
-        role: MessageRole::User,
-        content: content.clone(),
-    });
-
-    // Get settings for provider configuration
-    let settings = ensure_settings()?;
-
-    // Send to LLM
-    let response = send_chat_message(&app_handle, llm_messages, model_id.clone(), settings.clone()).await?;
-
-    // Save user message to database
-    let user_req = SendMessageRequest {
+    // 保存用户消息（两种模式都要）
+    add_message_to_session(&conn, session_id, &SendMessageRequest {
         content: content.clone(),
         model_id: None,
-    };
-    add_message_to_session(&conn, session_id, &user_req)?;
+    })?;
 
-    // Save assistant message to database
-    let assistant_req = SendMessageRequest {
-        content: response.clone(),
-        model_id: Some(model_id.clone()),
-    };
-    let saved_message = add_message_to_session(&conn, session_id, &assistant_req)?;
+    let settings = ensure_settings()?;
 
-    // If this is the first message, spawn background task to generate title
+    let final_message: FrontendChatMessage;
+    let mut result_articles: Vec<FrontendArticle> = Vec::new();
+
+    if session.mode == "paper_search" {
+        // ========== 检索模式：LLM 关键词提取 + BM25 ==========
+        println!("[对话] 检索模式: {}", content);
+        let keywords = paper_search::extract_keywords(&app_handle, &content, &model_id, settings.clone()).await?;
+        let hits = paper_search::bm25_search(&conn, &keywords, 10)?;
+
+        let summary = if hits.is_empty() {
+            format!("没有找到与「{}」相关的文章，可以换个说法再试。", content)
+        } else {
+            format!("为你找到 {} 篇相关文章（按相关度和时效排序）：", hits.len())
+        };
+        let assistant_msg = add_message_to_session(&conn, session_id, &SendMessageRequest {
+            content: summary,
+            model_id: Some(model_id.clone()),
+        })?;
+
+        // 关联检索到的文章到该消息（通过 id 关联 papers，不冗余存储）
+        let msg_db_id: i64 = assistant_msg.id.parse().unwrap_or(0);
+        for hit in &hits {
+            let _ = add_message_article(&conn, msg_db_id, hit.article_id);
+        }
+
+        result_articles = hits.into_iter().map(|h| h.paper.into()).collect();
+        final_message = assistant_msg;
+    } else {
+        // ========== 普通对话：可选文章 PDF 上下文 ==========
+        let mut llm_messages: Vec<ChatMessage> = Vec::new();
+
+        // 若会话附加了文章 PDF，解析文本放到对话开头作为上下文
+        if let Some(ctx) = session.context_text.as_deref() {
+            if !ctx.trim().is_empty() {
+                let ctx_capped: String = ctx.chars().take(50_000).collect();
+                llm_messages.push(ChatMessage {
+                    role: MessageRole::System,
+                    content: format!(
+                        "以下是用户上传的一篇文章的文本内容，请结合它回答用户的问题。\n\n文章文本：\n{}",
+                        ctx_capped
+                    ),
+                });
+            }
+        }
+
+        // 历史消息
+        for m in &existing_messages {
+            llm_messages.push(ChatMessage {
+                role: match m.role.as_str() {
+                    "assistant" => MessageRole::Assistant,
+                    _ => MessageRole::User,
+                },
+                content: m.content.clone(),
+            });
+        }
+        // 当前用户消息
+        llm_messages.push(ChatMessage {
+            role: MessageRole::User,
+            content: content.clone(),
+        });
+
+        println!(
+            "[对话] 普通对话 (PDF上下文 {} 字符)",
+            session.context_text.as_deref().map(|s| s.chars().count()).unwrap_or(0)
+        );
+        let response = send_chat_message(&app_handle, llm_messages, model_id.clone(), settings.clone()).await?;
+
+        final_message = add_message_to_session(&conn, session_id, &SendMessageRequest {
+            content: response,
+            model_id: Some(model_id.clone()),
+        })?;
+    }
+
+    // 首条消息：后台生成会话标题
     if is_first_message {
         let app_handle = app_handle.clone();
         let db_pool = state.db_pool.clone();
@@ -144,18 +294,15 @@ pub async fn chat_send_message(
         let model_id_for_title = model_id.clone();
         let settings_for_title = settings.clone();
 
-        // Spawn a blocking task that runs in background
         tauri::async_runtime::spawn(async move {
             match generate_session_title(&app_handle, content_for_title, model_id_for_title, settings_for_title).await {
                 Ok(title) => {
-                    // Update session title in database
                     match db_pool.get() {
                         Ok(conn) => {
                             if let Err(e) = update_session_title(&conn, session_id, &title) {
                                 eprintln!("Failed to update session title: {}", e);
                             } else {
                                 println!("[INFO] Generated session title: {}", title);
-                                // Emit event to frontend to update the session title
                                 let _ = app_handle.emit("session-title-updated", serde_json::json!({
                                     "sessionId": session_id.to_string(),
                                     "title": title
@@ -171,7 +318,8 @@ pub async fn chat_send_message(
     }
 
     Ok(SendMessageResponse {
-        message: saved_message,
+        message: final_message,
         updated_session_title: None, // Title will be generated in background
+        articles: result_articles,
     })
 }

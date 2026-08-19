@@ -38,14 +38,14 @@
     "chat": "对话",
     "paperSearch": "论文搜索",
     "articleSummary": "文章总结",
-    "aiChat": "AI 对话",
-    "aiSearchRecommend": "AI搜索推荐",
+    "aiChat": "一起读",
+    "aiSearchRecommend": "BM25检索",
     "chapterSummary": "文章总结"
   },
   "homePage": {
     "aiChat": {
-      "title": "AI 智能对话",
-      "description": "与 AI 助手进行自然语言对话，探索学术问题、获取研究灵感和深入讨论您感兴趣的话题",
+      "title": "一起读",
+      "description": "上传文章 PDF 或从库中选择文章，AI 结合文章内容陪你一起阅读讨论；也可以不带文章直接自由提问",
       "chips": {
         "conceptExplain": "概念解释",
         "researchInspiration": "研究灵感",
@@ -54,8 +54,8 @@
       "tryAsk": "试试问："
     },
     "aiSearch": {
-      "title": "AI 论文搜索",
-      "description": "用自然语言描述您的研究方向，AI 将为您智能推荐相关论文，支持多数据源联合检索",
+      "title": "BM25 论文检索",
+      "description": "输入您的研究需求，AI 提取检索关键词后对库内论文做 BM25 检索，按相关度和时效排序；点击结果可阅读、收藏",
       "trySearch": "试试搜索："
     },
     "chapterSummary": {
@@ -73,10 +73,13 @@
     "currentArticle": "当前文章:",
     "selectArticle": "选择文章",
     "articlePlaceholder": "输入文章标题...",
+    "attachPdf": "上传文章 PDF",
+    "attachFromLibrary": "从库中选择文章",
+    "noSearchResult": "没有找到匹配的文章",
+    "pdfAttached": "已解析 {{count}} 字符，将作为对话上下文",
     "inputPlaceholder": {
       "chat": "输入您的问题...",
-      "search": "描述您想要查找的论文...",
-      "summary": "添加额外的总结要求..."
+      "search": "描述您想要查找的论文..."
     },
     "tryExamples": {
       "transformer": "请解释一下 Transformer 的工作原理",
@@ -128,7 +131,6 @@
     "confirmDeleteTitle": "删除文章",
     "deleteSuccess": "文章已删除",
     "deleteFailed": "删除失败",
-    "source": "来源",
     "noPublicationLink": "该文章未指定发表信息页网址",
     "editInfo": "编辑信息",
     "arxivSection": "arXiv补录",
@@ -151,9 +153,9 @@
     "conferencePlaceholder": "输入搜索会议/期刊",
     "typeToSearch": "输入关键词搜索",
     "arxiv": "arXiv",
-    "subscribed": "订阅",
+    "subscribed": "作者",
     "showArxiv": "从订阅领域中筛选特定领域",
-    "showSubscribedHint": "文章在订阅领域范围内，且匹配订阅关键词或作者",
+    "showSubscribedHint": "筛选订阅领域内、由订阅作者署名的文章",
     "domains": "领域",
     "noResults": "没有找到符合条件的文章",
     "perPage": "每页条数",

@@ -318,8 +318,9 @@ export const RightToolbar = ({ open, onToggle }: RightToolbarProps) => {
             pollRef.current = null;
           }
           setCrawlerRunning(false);
-          // Update lastCrawlTime directly with current server time
-          updateSettings({ lastCrawlTime: new Date().toISOString() });
+          // 后端 engine 爬取完成时已写入真实的 lastCrawlTime，这里重新拉取。
+          // 不要用本地 ISO 时间覆盖——旧实现会把格式写坏、导致调度器解析失败卡死。
+          loadSettings();
         }
       } catch (err) {
         console.error('Failed to check crawler status', err);
@@ -330,7 +331,7 @@ export const RightToolbar = ({ open, onToggle }: RightToolbarProps) => {
         setCrawlerRunning(false);
       }
     }, 2000);
-  }, [updateSettings]);
+  }, [loadSettings]);
 
   // Cleanup polling on unmount
   useEffect(() => {
@@ -631,7 +632,7 @@ export const RightToolbar = ({ open, onToggle }: RightToolbarProps) => {
                   cursor: 'pointer',
                   '&:hover': { bgcolor: 'action.hover' },
                 }}
-                onClick={() => handleRecommendationClick(rec.id)}
+                onClick={() => handleRecommendationClick(rec.date)}
               >
                 <CalendarIcon sx={{ color: '#9CCC65', fontSize: 16 }} />
                 <Typography variant="body2" sx={{ flex: 1 }}>

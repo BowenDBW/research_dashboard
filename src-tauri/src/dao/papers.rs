@@ -31,7 +31,7 @@ pub fn paper_from_row(row: &Row) -> Result<Paper, rusqlite::Error> {
 
 /// Get paper list with filters and pagination
 /// Complex search logic:
-/// - subscribed_only: limit to subscribed categories AND (match subscribed keywords OR match subscribed authors)
+/// - subscribed_only: limit to subscribed categories AND subscribed authors（文章列表"作者"按钮：订阅领域内订阅作者的文章）
 /// - domains: further filter to specific domains (from subscribed categories)
 /// - sources: filter by conference/journal
 /// - query: user search (title/abstract/author)
@@ -44,9 +44,10 @@ pub fn get_papers(conn: &DbConnection, params: &PaperQueryParams) -> Result<Pape
     let mut bind_params: Vec<Box<dyn rusqlite::ToSql>> = vec![];
 
     // 1. Subscription filter (most complex)
-    // When subscribed_only is ON:
+    // When subscribed_only is ON (文章列表"作者"按钮):
     // - Paper must be in subscribed categories (AND condition)
-    // - AND (match subscribed keywords in title/abstract OR match subscribed authors)
+    // - AND paper has at least one subscribed author（忽略大小写、忽略首尾空格）
+    // 注意：不匹配订阅关键词，避免混入"命中关键词但作者未订阅"的论文
     if params.subscribed_only {
         // Condition A: Paper must be in subscribed categories
         conditions.push(
@@ -54,12 +55,11 @@ pub fn get_papers(conn: &DbConnection, params: &PaperQueryParams) -> Result<Pape
                 AND EXISTS (SELECT 1 FROM subscribed_categories sc WHERE sc.category = pc.category))".to_string()
         );
 
-        // Condition B: (match subscribed keywords OR match subscribed authors)
+        // Condition B: paper has a subscribed author (case-insensitive, trimmed)
         conditions.push(
-            "(EXISTS (SELECT 1 FROM subscribed_keywords sk
-                WHERE p.title LIKE '%' || sk.keyword || '%' OR p.abstract LIKE '%' || sk.keyword || '%')
-            OR EXISTS (SELECT 1 FROM paper_authors pa WHERE pa.article_id = p.article_id
-                AND EXISTS (SELECT 1 FROM subscribed_authors sa WHERE sa.author_name = pa.author_name)))".to_string()
+            "EXISTS (SELECT 1 FROM paper_authors pa WHERE pa.article_id = p.article_id
+                AND EXISTS (SELECT 1 FROM subscribed_authors sa
+                    WHERE TRIM(LOWER(sa.author_name)) = TRIM(LOWER(pa.author_name))))".to_string()
         );
     }
 
@@ -323,6 +323,39 @@ pub fn paper_exists_by_preprint(conn: &DbConnection, preprint_number: &str) -> R
         .map_err(|e| format!("查询论文是否存在失败: {}", e))?;
 
     Ok(count > 0)
+}
+
+/// Find a paper id by arxiv preprint number
+pub fn find_paper_by_arxiv(conn: &DbConnection, arxiv_id: &str) -> Result<Option<i64>, String> {
+    let result = conn.query_row(
+        "SELECT article_id FROM papers WHERE preprint_number = ?",
+        params![arxiv_id],
+        |row| row.get(0),
+    );
+    match result {
+        Ok(id) => Ok(Some(id)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(e) => Err(format!("查询arXiv论文失败: {}", e)),
+    }
+}
+
+/// Find a paper id by title (case-insensitive exact match).
+/// 用于推荐关联：Scholar Alert 文章优先按 arxiv_id，其次按标题匹配已有论文。
+pub fn find_paper_by_title(conn: &DbConnection, title: &str) -> Result<Option<i64>, String> {
+    let normalized = title.trim();
+    if normalized.is_empty() {
+        return Ok(None);
+    }
+    let result = conn.query_row(
+        "SELECT article_id FROM papers WHERE title = ? COLLATE NOCASE LIMIT 1",
+        params![normalized],
+        |row| row.get(0),
+    );
+    match result {
+        Ok(id) => Ok(Some(id)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(e) => Err(format!("按标题查询论文失败: {}", e)),
+    }
 }
 
 /// Get subscribed papers (for subscribed_only filter)

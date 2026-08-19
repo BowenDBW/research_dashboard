@@ -5,7 +5,6 @@ use std::fs;
 use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tauri::Manager;
 
 use crate::llm::{ConnectionTestResult, test_local_connection};
 use crate::llm::cloud::CloudLlmProvider;
@@ -102,6 +101,15 @@ fn get_default_settings() -> Value {
                 {"id": "sidebar-view-today-1", "type": "view_today", "enabled": true},
                 {"id": "sidebar-favorite-total-1", "type": "favorite_total", "enabled": true}
             ]
+        },
+        "gmail": {
+            "email": "",
+            "clientId": "",
+            "clientSecret": "",
+            "apiKey": "",
+            "syncIntervalHours": 24,
+            "lastSyncTime": null,
+            "authorizedEmail": ""
         }
     })
 }

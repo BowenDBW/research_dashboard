@@ -207,6 +207,7 @@ pub fn get_chat_history(conn: &DbConnection, params: &HistoryQueryParams) -> Res
             title: row.get(1)?,
             mode: row.get(2)?,
             article_id: row.get(3)?,
+            context_text: None,
             created_at: row.get(4)?,
             updated_at: row.get(5)?,
             message_count: Some(row.get(6)?),

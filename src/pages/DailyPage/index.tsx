@@ -132,7 +132,7 @@ const DailyPage = () => {
                       transform: 'translateY(-2px)',
                     },
                   }}
-                  onClick={() => handleRecommendationClick(rec.id)}
+                  onClick={() => handleRecommendationClick(rec.date)}
                 >
                   <CardContent>
                     <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>

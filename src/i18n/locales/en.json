@@ -38,14 +38,14 @@
     "chat": "Chat",
     "paperSearch": "Paper Search",
     "articleSummary": "Article Summary",
-    "aiChat": "AI Chat",
-    "aiSearchRecommend": "AI Search",
+    "aiChat": "Read Together",
+    "aiSearchRecommend": "BM25 Search",
     "chapterSummary": "Article Summary"
   },
   "homePage": {
     "aiChat": {
-      "title": "AI Intelligent Chat",
-      "description": "Have natural language conversations with AI assistant, explore academic questions, get research inspiration and discuss topics you're interested in",
+      "title": "Read Together",
+      "description": "Upload an article PDF or pick one from the library, and AI will read and discuss it together with you; you can also chat freely without an article",
       "chips": {
         "conceptExplain": "Concept Explanation",
         "researchInspiration": "Research Inspiration",
@@ -54,8 +54,8 @@
       "tryAsk": "Try asking:"
     },
     "aiSearch": {
-      "title": "AI Paper Search",
-      "description": "Describe your research direction in natural language, AI will intelligently recommend relevant papers, supporting multi-source joint retrieval",
+      "title": "BM25 Paper Search",
+      "description": "Describe your research needs, AI extracts search keywords and runs BM25 retrieval over library papers, ranked by relevance and recency; click a result to read or favorite it",
       "trySearch": "Try searching:"
     },
     "chapterSummary": {
@@ -73,10 +73,13 @@
     "currentArticle": "Current Article:",
     "selectArticle": "Select Article",
     "articlePlaceholder": "Enter article title...",
+    "attachPdf": "Upload Article PDF",
+    "attachFromLibrary": "Pick from Library",
+    "noSearchResult": "No matching articles found",
+    "pdfAttached": "Parsed {{count}} chars, will be used as conversation context",
     "inputPlaceholder": {
       "chat": "Type your question...",
-      "search": "Describe the papers you want to find...",
-      "summary": "Add additional summary requirements..."
+      "search": "Describe the papers you want to find..."
     },
     "tryExamples": {
       "transformer": "Please explain how Transformer works",
@@ -128,7 +131,6 @@
     "confirmDeleteTitle": "Delete Article",
     "deleteSuccess": "Article deleted",
     "deleteFailed": "Delete failed",
-    "source": "Source",
     "noPublicationLink": "This article has no publication link",
     "editInfo": "Edit Info",
     "arxivSection": "arXiv Import",
@@ -151,9 +153,9 @@
     "conferencePlaceholder": "Type to search conference/journal",
     "typeToSearch": "Type to search",
     "arxiv": "arXiv",
-    "subscribed": "Subscribed",
+    "subscribed": "Authors",
     "showArxiv": "Filter to specific subscribed domains",
-    "showSubscribedHint": "Articles in subscribed domains that match subscribed keywords or authors",
+    "showSubscribedHint": "Articles in subscribed domains authored by subscribed authors",
     "domains": "Domains",
     "noResults": "No articles found",
     "perPage": "Per Page",

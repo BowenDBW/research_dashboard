@@ -10,6 +10,7 @@ pub mod stats;
 pub mod chat;
 pub mod daily;
 pub mod venues;
+pub mod paper_search;
 pub mod manual_add;
 
 // Re-export all services

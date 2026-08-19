@@ -28,11 +28,11 @@ export const ArticleCard = ({ article, onArticleUpdated }: ArticleCardProps) => 
     e.stopPropagation();
     logAction(article.id, 'view_source');
 
-    // If has venue info, open publication_link
-    if (hasVenueInfo && article.url) {
+    // 优先打开来源链接（publication_link）；没有来源链接但有 arXiv 号则打开 arXiv 页。
+    // 不要用 hasVenueInfo 拦截：Scholar Alert 录入的非 arXiv 文章没有 venue 信息但有真实来源链接。
+    if (article.url) {
       openExternalUrl(article.url);
-    } else if (!hasVenueInfo && article.preprintNumber) {
-      // If arXiv article, open arxiv page
+    } else if (article.preprintNumber) {
       openExternalUrl(`https://arxiv.org/abs/${article.preprintNumber}`);
     }
   };

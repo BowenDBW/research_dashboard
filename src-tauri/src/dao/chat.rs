@@ -12,8 +12,9 @@ fn session_from_row(row: &Row) -> Result<ChatSession, rusqlite::Error> {
         title: row.get(1)?,
         mode: row.get(2)?,
         article_id: row.get(3)?,
-        created_at: row.get(4)?,
-        updated_at: row.get(5)?,
+        context_text: row.get(4)?,
+        created_at: row.get(5)?,
+        updated_at: row.get(6)?,
         message_count: None,
     })
 }
@@ -53,7 +54,7 @@ pub fn create_session(conn: &DbConnection, req: &CreateSessionRequest) -> Result
 
 /// Get a session by ID
 pub fn get_session_by_id(conn: &DbConnection, session_id: i64) -> Result<ChatSession, String> {
-    let sql = "SELECT session_id, title, mode, article_id, created_at, updated_at
+    let sql = "SELECT session_id, title, mode, article_id, context_text, created_at, updated_at
                FROM chat_sessions WHERE session_id = ?";
 
     conn.query_row(sql, params![session_id], session_from_row)
@@ -136,6 +137,7 @@ pub fn get_recent_sessions(conn: &DbConnection, mode: Option<&str>, limit: i32) 
                 title: row.get(1)?,
                 mode: row.get(2)?,
                 article_id: row.get(3)?,
+                context_text: None,
                 created_at: row.get(4)?,
                 updated_at: row.get(5)?,
                 message_count: Some(row.get(6)?),
@@ -150,6 +152,7 @@ pub fn get_recent_sessions(conn: &DbConnection, mode: Option<&str>, limit: i32) 
                 title: row.get(1)?,
                 mode: row.get(2)?,
                 article_id: row.get(3)?,
+                context_text: None,
                 created_at: row.get(4)?,
                 updated_at: row.get(5)?,
                 message_count: Some(row.get(6)?),
@@ -170,4 +173,54 @@ pub fn update_session_title(conn: &DbConnection, session_id: i64, title: &str) -
     ).map_err(|e| format!("更新会话标题失败: {}", e))?;
 
     Ok(())
+}
+
+/// 更新会话的上下文文本（上传文章 PDF 解析后的内容，作为对话开头的上下文）
+pub fn update_session_context(conn: &DbConnection, session_id: i64, context_text: &str) -> Result<(), String> {
+    conn.execute(
+        "UPDATE chat_sessions SET context_text = ?, updated_at = CURRENT_TIMESTAMP WHERE session_id = ?",
+        params![context_text, session_id]
+    ).map_err(|e| format!("更新会话上下文失败: {}", e))?;
+
+    Ok(())
+}
+
+/// 读取会话的上下文文本（None 表示未附加文章）
+pub fn get_session_context(conn: &DbConnection, session_id: i64) -> Result<Option<String>, String> {
+    conn.query_row(
+        "SELECT context_text FROM chat_sessions WHERE session_id = ?",
+        params![session_id],
+        |r| r.get(0),
+    ).map_err(|e| format!("读取会话上下文失败: {}", e))
+}
+
+/// 清空会话的上下文文本（用户移除附件）
+pub fn clear_session_context(conn: &DbConnection, session_id: i64) -> Result<(), String> {
+    conn.execute(
+        "UPDATE chat_sessions SET context_text = NULL, updated_at = CURRENT_TIMESTAMP WHERE session_id = ?",
+        params![session_id]
+    ).map_err(|e| format!("清空会话上下文失败: {}", e))?;
+    Ok(())
+}
+
+/// 为消息关联一篇文章（检索结果：message -> article，多篇）
+pub fn add_message_article(conn: &DbConnection, message_id: i64, article_id: i64) -> Result<(), String> {
+    conn.execute(
+        "INSERT OR IGNORE INTO chat_message_articles (message_id, article_id) VALUES (?, ?)",
+        params![message_id, article_id]
+    ).map_err(|e| format!("关联检索文章失败: {}", e))?;
+    Ok(())
+}
+
+/// 查询消息关联的文章 id 列表
+pub fn get_message_article_ids(conn: &DbConnection, message_id: i64) -> Result<Vec<i64>, String> {
+    let mut stmt = conn
+        .prepare("SELECT article_id FROM chat_message_articles WHERE message_id = ? ORDER BY id")
+        .map_err(|e| format!("准备查询关联文章失败: {}", e))?;
+    let ids: Vec<i64> = stmt
+        .query_map(params![message_id], |r| r.get(0))
+        .map_err(|e| format!("查询关联文章失败: {}", e))?
+        .filter_map(|r| r.ok())
+        .collect();
+    Ok(ids)
 }

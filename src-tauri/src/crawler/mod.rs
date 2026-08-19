@@ -5,7 +5,7 @@
 pub mod engine;
 
 use std::sync::{Arc, Mutex};
-use tauri::State;
+use tauri::{AppHandle, Emitter, State};
 
 use crate::AppState;
 use engine::{CrawlProgress, CrawlerEngine};
@@ -59,6 +59,7 @@ pub struct CrawlerStatusResponse {
 /// Categories are read from the subscribed_categories table
 #[tauri::command]
 pub async fn crawler_start(
+    app: AppHandle,
     state: State<'_, Arc<AppState>>,
 ) -> Result<String, String> {
     let handle = &state.crawler;
@@ -82,6 +83,7 @@ pub async fn crawler_start(
 
     let handle_clone = handle.clone();
     let db_pool = state.db_pool.clone();
+    let app_clone = app.clone();
 
     tokio::spawn(async move {
         let engine = CrawlerEngine::new();
@@ -110,6 +112,8 @@ pub async fn crawler_start(
                 inner.progress.errors.push(e);
             }
         }
+        // 通知前端刷新 lastCrawlTime 等设置
+        let _ = app_clone.emit("crawler-finished", ());
     });
 
     Ok("爬虫已启动".to_string())
@@ -155,10 +159,11 @@ impl Default for CrawlerHandle {
 /// Start the scheduled crawler background task
 /// Reads crawlIntervalHours from settings and runs the crawler at that interval
 /// When lastCrawlTime is null, crawls immediately after a short delay
-pub fn start_crawl_scheduler(db_pool: crate::dao::DbPool, crawler: CrawlerHandle) {
+pub fn start_crawl_scheduler(db_pool: crate::dao::DbPool, crawler: CrawlerHandle, app: AppHandle) {
     // Spawn a dedicated OS thread with its own Tokio runtime
     std::thread::spawn(move || {
         let rt = tokio::runtime::Runtime::new().expect("Failed to create scheduler runtime");
+        let app_clone = app.clone();
         rt.block_on(async move {
             // Initial delay before first crawl (let the app fully start)
             tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
@@ -173,22 +178,29 @@ pub fn start_crawl_scheduler(db_pool: crate::dao::DbPool, crawler: CrawlerHandle
                 // Read last crawl time
                 let last_crawl = engine::get_last_crawl_date();
 
-                // Calculate how long to wait before next crawl
+                // 计算距离下次爬取还要等多久（秒）。
+                // lastCrawlTime 兼容三种格式：完整时间戳 / ISO / 旧版日期，
+                // 统一用 engine::parse_last_crawl_time 转成 UTC 时刻计算。
                 let wait_secs = if let Some(last) = last_crawl {
-                    // Try to parse the last crawl time and calculate remaining time
-                    // The format is "YYYY-MM-DD" or ISO format
-                    if let Ok(last_dt) = chrono::NaiveDate::parse_from_str(&last, "%Y-%m-%d") {
-                        let last_datetime = last_dt.and_hms_opt(0, 0, 0).unwrap();
-                        let now = chrono::Utc::now().naive_utc();
-                        let elapsed = (now - last_datetime).num_seconds().max(0) as u64;
-                        let interval_secs = interval_hours * 3600;
-                        if elapsed >= interval_secs {
-                            0 // Crawl now
-                        } else {
-                            interval_secs - elapsed // Wait for remaining time
+                    match engine::parse_last_crawl_time(&last) {
+                        Some(last_utc) => {
+                            let elapsed = (chrono::Utc::now() - last_utc).num_seconds().max(0) as u64;
+                            let interval_secs = interval_hours * 3600;
+                            println!("[调度器] 上次爬取: {} (UTC+8), 已过 {} 秒, 间隔: {} 小时", last, elapsed, interval_hours);
+                            if elapsed >= interval_secs {
+                                println!("[调度器] 已超过间隔, 立即开始爬取");
+                                0 // Crawl now
+                            } else {
+                                let remaining = interval_secs - elapsed;
+                                println!("[调度器] 距离下次爬取还有 {} 秒", remaining);
+                                remaining // Wait for remaining time
+                            }
                         }
-                    } else {
-                        interval_hours * 3600 // Fallback to full interval
+                        None => {
+                            // 格式无法解析：fail-open，立即爬取一次，成功后会写回正确格式自愈
+                            println!("[调度器] 上次爬取时间无法解析 ({}), 立即爬取以修复", last);
+                            0
+                        }
                     }
                 } else {
                     // No last crawl time — crawl immediately
@@ -207,6 +219,7 @@ pub fn start_crawl_scheduler(db_pool: crate::dao::DbPool, crawler: CrawlerHandle
                 };
 
                 if should_run {
+                    println!("[调度器] 开始自动爬取...");
                     let engine = engine::CrawlerEngine::new();
                     let handle_clone = crawler.clone();
                     let pool = db_pool.clone();
@@ -227,6 +240,7 @@ pub fn start_crawl_scheduler(db_pool: crate::dao::DbPool, crawler: CrawlerHandle
                         inner.cancel_flag = false;
                     }
 
+                    println!("[调度器] 正在爬取...");
                     let result = engine.run(&pool, |progress| {
                         let mut inner = handle_clone.inner.lock().unwrap();
                         if inner.cancel_flag {
@@ -247,9 +261,16 @@ pub fn start_crawl_scheduler(db_pool: crate::dao::DbPool, crawler: CrawlerHandle
                             }
                         }
                         Err(e) => {
+                            println!("[调度器] 爬取失败: {}", e);
                             inner.progress.errors.push(e);
                         }
                     }
+                    // 通知前端刷新 lastCrawlTime 等设置
+                    let _ = app_clone.emit("crawler-finished", ());
+                    // Always sleep after a crawl attempt so the loop doesn't tight-loop on failure.
+                    // The next iteration will re-read `lastCrawlTime` from settings (which was
+                    // updated by the engine on success) and compute the correct wait duration.
+                    tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
                 } else {
                     // Crawler is running, wait for it to finish before next cycle
                     tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;

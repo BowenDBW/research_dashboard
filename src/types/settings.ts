@@ -1,3 +1,5 @@
+import { GmailConfig } from './gmail';
+
 export interface ModelConfig {
   id: string;           // Unique identifier
   modelName: string;    // Internal model name (e.g., "gpt-4o", "claude-3-opus")
@@ -54,6 +56,8 @@ export interface AppSettings {
   selectedModelId: string | null;
   // Stats card configuration
   statsCardConfig?: StatsCardConfig;
+  // Gmail configuration
+  gmail?: GmailConfig;
 }
 
 export interface ConnectionTestResult {

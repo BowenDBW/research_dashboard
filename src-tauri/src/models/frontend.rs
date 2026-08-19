@@ -204,6 +204,9 @@ pub struct FrontendChatMessage {
     pub role: String,
     pub content: String,
     pub timestamp: String,
+    /// 检索结果：该消息关联的文章列表（普通文本消息为空）
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub articles: Vec<FrontendArticle>,
 }
 
 /// Response for send_message - includes message and optionally updated session title
@@ -213,6 +216,9 @@ pub struct SendMessageResponse {
     pub message: FrontendChatMessage,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub updated_session_title: Option<String>,
+    /// 检索模式：返回的文章列表（普通对话为空）
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub articles: Vec<FrontendArticle>,
 }
 
 // ========== Subscription Frontend Types ==========

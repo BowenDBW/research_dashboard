@@ -1,5 +1,7 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
 import { useSearchParams, useOutletContext } from 'react-router-dom';
+import { invoke } from '@tauri-apps/api/core';
+import { open as openFileDialog } from '@tauri-apps/plugin-dialog';
 import {
   Box,
   Tabs,
@@ -11,22 +13,21 @@ import {
   IconButton,
   Avatar,
   Skeleton,
-  Autocomplete,
   Select,
   MenuItem,
   FormControl,
   SelectChangeEvent,
   Button,
   Chip,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  CircularProgress,
 } from '@mui/material';
-import { DatePicker as MuiDatePicker } from '@mui/x-date-pickers/DatePicker';
-import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
-import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
 import {
   Send as SendIcon,
   Chat as ChatIcon,
   Search as SearchIcon,
-  Summarize as SummarizeIcon,
   SmartToy as SmartToyIcon,
   Person as PersonIcon,
   Cloud as CloudIcon,
@@ -36,63 +37,26 @@ import {
   AutoAwesome as AutoAwesomeIcon,
   MenuBook as MenuBookIcon,
   Lightbulb as LightbulbIcon,
+  AttachFile as AttachFileIcon,
+  Description as DescriptionIcon,
+  Article as ArticleIcon,
   Close as CloseIcon,
 } from '@mui/icons-material';
-import dayjs from 'dayjs';
 import { useTranslation } from 'react-i18next';
 import { useChat } from '../../stores';
 import { useSettingsStore } from '../../stores/useSettingsStore';
+import { AbstractDialog } from '../../components/article/AbstractDialog';
 import { Article, ChatMode } from '../../types';
 
 interface OutletContext {
   openSettings: () => void;
 }
 
-// 示例文章列表
-const ARTICLE_OPTIONS: Article[] = [
-  {
-    id: '1',
-    title: 'Attention Is All You Need',
-    authors: ['Vaswani et al.'],
-    source: 'arXiv',
-    sourceType: 'arxiv',
-    publishDate: '2017',
-    abstract: '',
-    url: '',
-    pdfUrl: '',
-    domains: ['cs.LG'],
-    isFavorited: false,
-    metadata: {},
-  },
-  {
-    id: '2',
-    title: 'BERT: Pre-training of Deep Bidirectional Transformers',
-    authors: ['Devlin et al.'],
-    source: 'arXiv',
-    sourceType: 'arxiv',
-    publishDate: '2018',
-    abstract: '',
-    url: '',
-    pdfUrl: '',
-    domains: ['cs.CL'],
-    isFavorited: false,
-    metadata: {},
-  },
-  {
-    id: '3',
-    title: 'GPT-4 Technical Report',
-    authors: ['OpenAI'],
-    source: 'arXiv',
-    sourceType: 'arxiv',
-    publishDate: '2023',
-    abstract: '',
-    url: '',
-    pdfUrl: '',
-    domains: ['cs.AI'],
-    isFavorited: false,
-    metadata: {},
-  },
-];
+interface AttachedPdfInfo {
+  fileName: string;
+  charCount: number;
+  preview: string;
+}
 
 interface ModelOption {
   id: string;
@@ -102,16 +66,15 @@ interface ModelOption {
   localType?: 'server' | 'mlx';  // Only for local models
 }
 
-const modeToTab: Record<ChatMode, number> = {
+const modeToTab: Partial<Record<ChatMode, number>> = {
   chat: 0,
   paper_search: 1,
-  chapter_summary: 2,
+  chapter_summary: 0, // 兼容旧会话：章节总结视作普通对话
 };
 
 const tabToMode: Record<number, ChatMode> = {
   0: 'chat',
   1: 'paper_search',
-  2: 'chapter_summary',
 };
 
 const HomePage = () => {
@@ -122,10 +85,16 @@ const HomePage = () => {
 
   const [activeTab, setActiveTab] = useState(0);
   const [inputValue, setInputValue] = useState('');
-  const [searchStartDate, setSearchStartDate] = useState<dayjs.Dayjs | null>(null);
-  const [searchEndDate, setSearchEndDate] = useState<dayjs.Dayjs | null>(dayjs());
-  const [selectedArticle, setSelectedArticle] = useState<Article | null>(null);
+  const [attachedPdf, setAttachedPdf] = useState<AttachedPdfInfo | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
+  // 从库内文章选择附件
+  const [arxivPickerOpen, setArxivPickerOpen] = useState(false);
+  const [pickerQuery, setPickerQuery] = useState('');
+  const [pickerResults, setPickerResults] = useState<Article[]>([]);
+  const [pickerLoading, setPickerLoading] = useState(false);
+  // 检索结果文章弹窗（阅读/收藏等）
+  const [dialogArticle, setDialogArticle] = useState<Article | null>(null);
+  const [dialogOpen, setDialogOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const initializedRef = useRef(false);
 
@@ -165,7 +134,9 @@ const HomePage = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isStreaming]);
 
-  // Initialize: create new session on home page load
+  // Initialize: 仅在没有任何会话时才创建新会话。
+  // 之前"每次进入首页都 createSession"会在每次导航回首页时新建空会话，
+  // 导致 chat_sessions 堆积大量 0 消息的空壳，污染统计与历史记录。
   useEffect(() => {
     if (!initializedRef.current) {
       initializedRef.current = true;
@@ -178,23 +149,20 @@ const HomePage = () => {
           return;
         }
       }
-      // Always create a new empty chat session when entering home page
-      createSession('chat');
+      // 已有会话（例如从其他页面返回）则复用，不再新建空会话
+      if (!currentSessionId) {
+        createSession('chat');
+      }
     }
-  }, [sessionIdFromUrl, sessions, createSession, switchSession]);
+  }, [sessionIdFromUrl, sessions, currentSessionId, createSession, switchSession]);
 
   // Update tab when session changes
   useEffect(() => {
     const session = sessions.find(s => s.id === currentSessionId);
     if (session) {
-      setActiveTab(modeToTab[session.mode]);
-      // Update selected article for chapter_summary mode
-      if (session.mode === 'chapter_summary' && session.articleId) {
-        const article = ARTICLE_OPTIONS.find(a => a.id === session.articleId);
-        if (article) {
-          setSelectedArticle(article);
-        }
-      }
+      setActiveTab(modeToTab[session.mode] ?? 0);
+      // 切换会话时重置附件指示（上下文仍存于后端 session）
+      setAttachedPdf(null);
     }
   }, [currentSessionId, sessions]);
 
@@ -202,36 +170,109 @@ const HomePage = () => {
     const newMode = tabToMode[newValue];
     const currentSession = sessions.find(s => s.id === currentSessionId);
 
-    // If current session has messages or different mode, create new session
-    if (currentSession && (messages.length > 0 || currentSession.mode !== newMode)) {
-      // For chapter_summary mode, pass article info if available
-      if (newMode === 'chapter_summary' && selectedArticle) {
-        createSession(newMode, { articleId: selectedArticle.id, articleTitle: selectedArticle.title });
-      } else {
-        createSession(newMode);
-      }
-    } else if (currentSession && currentSession.mode === newMode) {
+    // 目标模式已存在的空会话（无消息）→ 直接复用，避免来回切标签时堆积空会话
+    const emptySessionOfMode = sessions.find(
+      s => s.mode === newMode && !s.messageCount
+    );
+
+    if (currentSession && currentSession.mode === newMode) {
       // Same mode, just update tab
       setActiveTab(newValue);
+    } else if (emptySessionOfMode) {
+      // Reuse an existing empty session of the target mode
+      switchSession(emptySessionOfMode.id);
+      setActiveTab(newValue);
     } else {
-      // No current session, create new one
-      if (newMode === 'chapter_summary' && selectedArticle) {
-        createSession(newMode, { articleId: selectedArticle.id, articleTitle: selectedArticle.title });
-      } else {
-        createSession(newMode);
-      }
+      // 目标模式没有可复用的空会话，才新建
+      createSession(newMode);
+      setActiveTab(newValue);
     }
-    setActiveTab(newValue);
+    setAttachedPdf(null);
   };
 
   const handleModelChange = (event: SelectChangeEvent) => {
     updateSettings({ selectedModelId: event.target.value });
   };
 
-  const handleResetArticle = () => {
-    setSelectedArticle(null);
-    // Create a new empty chapter_summary session
-    createSession('chapter_summary');
+  // 上传并解析文章 PDF 作为对话上下文
+  const handleAttachPdf = async () => {
+    if (!currentSessionId) return;
+    try {
+      const selected = await openFileDialog({
+        multiple: false,
+        filters: [{ name: 'PDF', extensions: ['pdf'] }],
+      });
+      if (!selected) return;
+      const res = await invoke<{ charCount: number; preview: string }>('chat_attach_pdf', {
+        sessionId: parseInt(currentSessionId),
+        filePath: selected,
+      });
+      const fileName = (selected as string).split(/[\\/]/).pop() || 'article.pdf';
+      setAttachedPdf({ fileName, charCount: res.charCount, preview: res.preview });
+    } catch (error) {
+      console.error('PDF 解析失败:', error);
+    }
+  };
+
+  // 移除附件（同时清空后端会话上下文）
+  const handleRemovePdf = async () => {
+    setAttachedPdf(null);
+    if (currentSessionId) {
+      try {
+        await invoke('chat_clear_context', { sessionId: parseInt(currentSessionId) });
+      } catch (error) {
+        console.error('清空上下文失败:', error);
+      }
+    }
+  };
+
+  // 打开检索结果文章摘要弹窗
+  const handleOpenArticle = (article: Article) => {
+    setDialogArticle(article);
+    setDialogOpen(true);
+  };
+
+  // 从库内文章选择附件：搜索
+  const handlePickerSearch = async () => {
+    if (!pickerQuery.trim()) return;
+    setPickerLoading(true);
+    try {
+      const resp = await invoke<{ articles: Article[] }>('papers_list', {
+        page: 1,
+        pageSize: 20,
+        query: pickerQuery.trim(),
+        startDate: null,
+        endDate: null,
+        sources: null,
+        domains: null,
+        subscribedOnly: false,
+      });
+      setPickerResults(resp.articles || []);
+    } catch (error) {
+      console.error('搜索文章失败:', error);
+      setPickerResults([]);
+    } finally {
+      setPickerLoading(false);
+    }
+  };
+
+  // 选中库内文章：下载其 arXiv PDF 解析为对话上下文（后端解析后删除临时文件）
+  const handlePickArticle = async (article: Article) => {
+    setArxivPickerOpen(false);
+    if (!currentSessionId) return;
+    try {
+      const res = await invoke<{ charCount: number; preview: string }>('chat_attach_arxiv', {
+        sessionId: parseInt(currentSessionId),
+        articleId: parseInt(article.id),
+      });
+      setAttachedPdf({
+        fileName: `${article.preprintNumber || 'article'}.pdf`,
+        charCount: res.charCount,
+        preview: res.preview,
+      });
+    } catch (error) {
+      console.error('附件解析失败:', error);
+    }
   };
 
   const handleSend = async () => {
@@ -313,33 +354,11 @@ const HomePage = () => {
           </Typography>
         </Box>
       );
-    } else {
-      return (
-        <Box sx={{ textAlign: 'center', py: 6, px: 4 }}>
-          <Avatar sx={{ width: 80, height: 80, mx: 'auto', mb: 3, bgcolor: 'warning.light' }}>
-            <SummarizeIcon sx={{ fontSize: 40 }} />
-          </Avatar>
-          <Typography variant="h5" gutterBottom sx={{ fontWeight: 600, color: 'warning.dark' }}>
-            {t('homePage.chapterSummary.title')}
-          </Typography>
-          <Typography variant="body1" color="text.secondary" sx={{ mb: 3, maxWidth: 500, mx: 'auto' }}>
-            {t('homePage.chapterSummary.description')}
-          </Typography>
-          <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center', flexWrap: 'wrap' }}>
-            <Chip icon={<MenuBookIcon />} label={t('homePage.chapterSummary.chips.abstractExtract')} variant="outlined" size="small" />
-            <Chip icon={<AutoAwesomeIcon />} label={t('homePage.chapterSummary.chips.keyPoints')} variant="outlined" size="small" />
-            <Chip icon={<LightbulbIcon />} label={t('homePage.chapterSummary.chips.keyFindings')} variant="outlined" size="small" />
-          </Box>
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 3 }}>
-            {t('homePage.chapterSummary.selectHint')}
-          </Typography>
-        </Box>
-      );
     }
   };
 
   return (
-    <LocalizationProvider dateAdapter={AdapterDayjs}>
+    <>
       <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         {/* Tabs with Model Selector */}
         <Paper sx={{ flexShrink: 0 }} square>
@@ -353,7 +372,6 @@ const HomePage = () => {
             >
               <Tab icon={<ChatIcon />} label={t('chat.aiChat')} iconPosition="start" />
               <Tab icon={<SearchIcon />} label={t('chat.aiSearchRecommend')} iconPosition="start" />
-              <Tab icon={<SummarizeIcon />} label={t('chat.chapterSummary')} iconPosition="start" />
             </Tabs>
 
             {/* Model Selector */}
@@ -422,76 +440,45 @@ const HomePage = () => {
 
         {/* Main Content Area */}
         <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', p: 2 }}>
-          {/* AI搜索推荐: Date Range */}
-          {activeTab === 1 && (
-            <Box sx={{ mb: 2, display: 'flex', gap: 2, flexShrink: 0 }}>
-              <MuiDatePicker
-                label={t('articles.startDate')}
-                value={searchStartDate}
-                onChange={(newValue) => setSearchStartDate(newValue)}
-                slotProps={{ textField: { size: 'small' } }}
-              />
-              <MuiDatePicker
-                label={t('articles.endDate')}
-                value={searchEndDate}
-                onChange={(newValue) => setSearchEndDate(newValue)}
-                slotProps={{ textField: { size: 'small' } }}
-              />
-            </Box>
-          )}
-
-          {/* Chapter Summary: Article Selection */}
-          {activeTab === 2 && (
-            <Box sx={{ mb: 2, flexShrink: 0, display: 'flex', justifyContent: 'center' }}>
-              {selectedArticle ? (
-                <Paper sx={{ px: 2, py: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <Typography variant="body2" color="text.secondary">
-                    {t('homePage.currentArticle')}
-                  </Typography>
-                  <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                    {selectedArticle.title}
-                  </Typography>
-                  <Chip
-                    label={selectedArticle.id}
-                    size="small"
-                    variant="outlined"
-                    sx={{ fontSize: '0.7rem' }}
-                  />
-                  <IconButton size="small" onClick={handleResetArticle} title={t('common.close')}>
+          {/* 对话模式：上传文章附件（可选） */}
+          {activeTab === 0 && (
+            <Box sx={{ mb: 1.5, flexShrink: 0, display: 'flex', alignItems: 'center', gap: 1 }}>
+              {attachedPdf ? (
+                <Paper sx={{ px: 1.5, py: 0.75, display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <DescriptionIcon sx={{ fontSize: 18, color: 'primary.main' }} />
+                  <Box>
+                    <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                      {attachedPdf.fileName}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {t('homePage.pdfAttached', { count: attachedPdf.charCount })}
+                    </Typography>
+                  </Box>
+                  <IconButton size="small" onClick={handleRemovePdf} title={t('common.close')}>
                     <CloseIcon fontSize="small" />
                   </IconButton>
                 </Paper>
               ) : (
-                <Autocomplete
-                  options={ARTICLE_OPTIONS}
-                  getOptionLabel={(option) => option.title}
-                  value={selectedArticle}
-                  onChange={(_, newValue) => setSelectedArticle(newValue)}
-                  sx={{ width: 400, maxWidth: '50%' }}
-                  renderInput={(params) => (
-                    <TextField
-                      {...params}
-                      label={t('homePage.selectArticle')}
-                      placeholder={t('homePage.articlePlaceholder')}
-                      size="small"
-                    />
-                  )}
-                  renderOption={(props, option) => {
-                    const { key, ...otherProps } = props as any;
-                    return (
-                      <li key={key} {...otherProps}>
-                        <Box>
-                          <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                            {option.title}
-                          </Typography>
-                          <Typography variant="caption" color="text.secondary">
-                            {option.authors.join(', ')} · {option.source} · {option.publishDate}
-                          </Typography>
-                        </Box>
-                      </li>
-                    );
-                  }}
-                />
+                <Box sx={{ display: 'flex', gap: 1 }}>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    startIcon={<AttachFileIcon />}
+                    onClick={handleAttachPdf}
+                    sx={{ textTransform: 'none' }}
+                  >
+                    {t('homePage.attachPdf')}
+                  </Button>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    startIcon={<ArticleIcon />}
+                    onClick={() => setArxivPickerOpen(true)}
+                    sx={{ textTransform: 'none' }}
+                  >
+                    {t('homePage.attachFromLibrary')}
+                  </Button>
+                </Box>
               )}
             </Box>
           )}
@@ -502,37 +489,66 @@ const HomePage = () => {
               {messages.length === 0 ? (
                 <EmptyStateContent mode={tabToMode[activeTab]} />
               ) : (
-                messages.map((msg) => (
-                  <Box
-                    key={msg.id}
-                    sx={{
-                      display: 'flex',
-                      justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start',
-                      gap: 1,
-                    }}
-                  >
-                    {msg.role === 'assistant' && (
-                      <Avatar sx={{ bgcolor: 'primary.main' }}>
-                        <SmartToyIcon />
-                      </Avatar>
-                    )}
-                    <Paper
+                messages.map((msg) => {
+                  const hasArticles = msg.role === 'assistant' && !!msg.articles && msg.articles.length > 0;
+                  return (
+                    <Box
+                      key={msg.id}
                       sx={{
-                        p: 2,
-                        maxWidth: '70%',
-                        bgcolor: msg.role === 'user' ? 'primary.light' : 'background.default',
-                        whiteSpace: 'pre-wrap',
+                        display: 'flex',
+                        justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start',
+                        gap: 1,
                       }}
                     >
-                      <Typography variant="body1">{msg.content}</Typography>
-                    </Paper>
-                    {msg.role === 'user' && (
-                      <Avatar sx={{ bgcolor: 'secondary.main' }}>
-                        <PersonIcon />
-                      </Avatar>
-                    )}
-                  </Box>
-                ))
+                      {msg.role === 'assistant' && (
+                        <Avatar sx={{ bgcolor: 'primary.main' }}>
+                          <SmartToyIcon />
+                        </Avatar>
+                      )}
+                      <Box sx={{ maxWidth: '70%', minWidth: 0 }}>
+                        <Paper
+                          sx={{
+                            p: 2,
+                            bgcolor: msg.role === 'user' ? 'primary.light' : 'background.default',
+                            whiteSpace: 'pre-wrap',
+                          }}
+                        >
+                          <Typography variant="body1">{msg.content}</Typography>
+                        </Paper>
+                        {hasArticles && (
+                          <Box sx={{ mt: 1, display: 'flex', flexDirection: 'column', gap: 0.75 }}>
+                            {msg.articles!.map((article) => (
+                              <Paper
+                                key={article.id}
+                                sx={{
+                                  p: 1.5,
+                                  cursor: 'pointer',
+                                  '&:hover': { boxShadow: 2 },
+                                }}
+                                onClick={() => handleOpenArticle(article)}
+                              >
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                                  <ArticleIcon sx={{ fontSize: 16, color: 'primary.main' }} />
+                                  <Typography variant="body2" sx={{ fontWeight: 500, flex: 1 }}>
+                                    {article.title}
+                                  </Typography>
+                                </Box>
+                                <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block', mt: 0.5 }}>
+                                  {article.authors.join(', ')} · {article.source} · {article.publishDate}
+                                </Typography>
+                              </Paper>
+                            ))}
+                          </Box>
+                        )}
+                      </Box>
+                      {msg.role === 'user' && (
+                        <Avatar sx={{ bgcolor: 'secondary.main' }}>
+                          <PersonIcon />
+                        </Avatar>
+                      )}
+                    </Box>
+                  );
+                })
               )}
               {isStreaming && (
                 <Box sx={{ display: 'flex', gap: 1 }}>
@@ -559,9 +575,7 @@ const HomePage = () => {
                 placeholder={
                   activeTab === 0
                     ? t('homePage.inputPlaceholder.chat')
-                    : activeTab === 1
-                    ? t('homePage.inputPlaceholder.search')
-                    : t('homePage.inputPlaceholder.summary')
+                    : t('homePage.inputPlaceholder.search')
                 }
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
@@ -584,7 +598,61 @@ const HomePage = () => {
           </Paper>
         </Box>
       </Box>
-    </LocalizationProvider>
+
+      {/* 检索结果文章摘要弹窗（阅读/收藏/打开来源等） */}
+      <AbstractDialog
+        open={dialogOpen}
+        article={dialogArticle}
+        onClose={() => setDialogOpen(false)}
+      />
+
+      {/* 从库内文章选择附件 */}
+      <Dialog open={arxivPickerOpen} onClose={() => setArxivPickerOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>{t('homePage.attachFromLibrary')}</DialogTitle>
+        <DialogContent dividers>
+          <Box sx={{ display: 'flex', gap: 1, mb: 1.5 }}>
+            <TextField
+              fullWidth
+              size="small"
+              autoFocus
+              placeholder={t('homePage.articlePlaceholder')}
+              value={pickerQuery}
+              onChange={(e) => setPickerQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handlePickerSearch();
+              }}
+            />
+            <Button size="small" variant="contained" onClick={handlePickerSearch} disabled={!pickerQuery.trim()}>
+              {t('common.search')}
+            </Button>
+          </Box>
+          {pickerLoading ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+              <CircularProgress size={24} />
+            </Box>
+          ) : pickerResults.length === 0 ? (
+            <Typography variant="body2" color="text.secondary" sx={{ py: 3, textAlign: 'center' }}>
+              {t('homePage.noSearchResult')}
+            </Typography>
+          ) : (
+            pickerResults.map((a) => (
+              <Paper
+                key={a.id}
+                sx={{ p: 1.5, mb: 1, cursor: 'pointer', '&:hover': { boxShadow: 2 } }}
+                onClick={() => handlePickArticle(a)}
+              >
+                <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                  {a.title}
+                </Typography>
+                <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block', mt: 0.25 }}>
+                  {a.authors.join(', ')} · {a.preprintNumber || a.source}
+                </Typography>
+              </Paper>
+            ))
+          )}
+        </DialogContent>
+      </Dialog>
+    </>
   );
 };
 

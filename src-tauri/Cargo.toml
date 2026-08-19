@@ -46,3 +46,11 @@ fs2 = "0.4"
 # HTML parsing (for arxiv crawler - equivalent to BeautifulSoup)
 scraper = "0.21"
 regex = "1"
+
+# Gmail API & OAuth2
+base64 = "0.22"
+url = "2"
+open = "5"
+
+# PDF 文本提取（对话上传文章附件）
+pdf-extract = "0.7"

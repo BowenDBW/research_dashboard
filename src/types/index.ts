@@ -6,3 +6,4 @@ export * from './subscription';
 export * from './history';
 export * from './daily';
 export * from './stats';
+export * from './gmail';

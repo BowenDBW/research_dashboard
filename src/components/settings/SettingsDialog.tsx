@@ -56,14 +56,16 @@ import {
   History as HistoryIcon,
   SdStorage as SdStorageIcon,
   Edit as EditIcon,
+  Email as EmailIcon,
 } from '@mui/icons-material';
 import { useTranslation } from 'react-i18next';
 import { invoke } from '@tauri-apps/api/core';
 import { open as showOpenDialog } from '@tauri-apps/plugin-dialog';
 import { useSettingsStore } from '../../stores/useSettingsStore';
+import { useGmailStore } from '../../stores/useGmailStore';
 import { useThemeMode, ThemePreference } from '../../app/ThemeProvider';
 import { useLanguageStore } from '../../stores/useLanguageStore';
-import { CloudProviderConfig, LocalProviderConfig, LocalProviderType, ModelConfig } from '../../types';
+import { CloudProviderConfig, LocalProviderConfig, LocalProviderType, ModelConfig, AppSettings } from '../../types';
 import { CategorySelectDialog } from '../common/CategorySelectDialog';
 import { getCategoryByCode } from '../../constants/academicCategories';
 
@@ -84,6 +86,7 @@ interface SettingsDialogProps {
 export const SettingsDialog = ({ open, onClose }: SettingsDialogProps) => {
   const { t } = useTranslation();
   const { settings, updateSettings, testConnection } = useSettingsStore();
+  const { syncProgress: gmailSyncProgress, startSync, fetchSyncStatus, stopSync } = useGmailStore();
   const { preference, setPreference } = useThemeMode();
   const { language, setLanguage } = useLanguageStore();
 
@@ -117,6 +120,9 @@ export const SettingsDialog = ({ open, onClose }: SettingsDialogProps) => {
   } | null>(null);
   const [crawlMessage, setCrawlMessage] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
   const crawlPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [gmailAuthStatus, setGmailAuthStatus] = useState<{ authorized: boolean; email: string } | null>(null);
+  const [gmailMessage, setGmailMessage] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
+  const gmailPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const appleDevice = isApplePlatform();
 
@@ -204,6 +210,7 @@ export const SettingsDialog = ({ open, onClose }: SettingsDialogProps) => {
     { id: 'appearance', label: t('settings.appearance'), icon: <PaletteIcon fontSize="small" /> },
     { id: 'storage', label: t('settings.storage'), icon: <StorageIcon fontSize="small" /> },
     { id: 'crawl', label: t('settings.crawler'), icon: <CloudIcon fontSize="small" /> },
+    { id: 'gmail', label: 'Gmail', icon: <EmailIcon fontSize="small" /> },
     { id: 'app', label: t('settings.appSettings'), icon: <SettingsIcon fontSize="small" /> },
     { id: 'llm', label: t('settings.llmSettings'), icon: <SmartToyIcon fontSize="small" />, children: [
       { id: 'llm-cloud', label: t('settings.cloudModels'), icon: <CloudIcon fontSize="small" /> },
@@ -358,6 +365,139 @@ export const SettingsDialog = ({ open, onClose }: SettingsDialogProps) => {
     updateSettings(localSettings);
     onClose();
   };
+
+  // Gmail handlers
+  const handleGmailAuthorize = async () => {
+    if (!localSettings.gmail?.clientId || !localSettings.gmail?.clientSecret) return;
+    try {
+      // Persist credentials so the background scheduler can read them from disk
+      await updateSettings(localSettings);
+      const status = await invoke<{ authorized: boolean; email: string }>('gmail_authorize', {
+        clientId: localSettings.gmail.clientId,
+        clientSecret: localSettings.gmail.clientSecret,
+      });
+      setGmailAuthStatus(status);
+      if (status.authorized) {
+        // Auto-fill the email field with the authorized account so the field always matches auth
+        if (status.email) {
+          const updated = {
+            ...localSettings,
+            gmail: { ...(localSettings.gmail || { email: '', clientId: '', clientSecret: '', apiKey: '', syncIntervalHours: 24, lastSyncTime: undefined }), email: status.email },
+          };
+          setLocalSettings(updated);
+          await updateSettings(updated);
+        }
+        // 授权成功后立即触发首次同步（回溯近三个月），对齐 arxiv 模块"授权即爬取"
+        setGmailMessage({ type: 'success', text: `已授权 ${status.email}，开始首次同步...` });
+        await startSync(localSettings.gmail.clientId, localSettings.gmail.clientSecret);
+        await fetchSyncStatus();
+      }
+    } catch (err) {
+      console.error('Gmail authorization failed:', err);
+      setGmailMessage({ type: 'error', text: `授权失败: ${err}` });
+    }
+  };
+
+  const handleGmailLogout = async () => {
+    try {
+      await invoke('gmail_logout');
+      setGmailAuthStatus({ authorized: false, email: '' });
+    } catch (err) {
+      console.error('Gmail logout failed:', err);
+    }
+  };
+
+  const handleGmailSync = async () => {
+    if (!localSettings.gmail?.clientId || !localSettings.gmail?.clientSecret) {
+      setGmailMessage({ type: 'error', text: '请先填写 Gmail Client ID 和 Client Secret' });
+      return;
+    }
+    try {
+      // Persist credentials so the background scheduler can read them from disk
+      await updateSettings(localSettings);
+      setGmailMessage({ type: 'info', text: '正在启动同步...' });
+      await startSync(localSettings.gmail.clientId, localSettings.gmail.clientSecret);
+      setGmailMessage({ type: 'info', text: '同步进行中...' });
+      // Fetch an immediate status snapshot so the UI reflects the running state right away
+      await fetchSyncStatus();
+    } catch (err) {
+      setGmailMessage({ type: 'error', text: String(err) });
+    }
+  };
+
+  const handleGmailSyncStop = async () => {
+    setGmailMessage({ type: 'info', text: '正在停止同步...' });
+    await stopSync();
+  };
+
+  // Persist gmail config to disk immediately on field blur / slider commit,
+  // so the background scheduler can read credentials without waiting for dialog close.
+  const persistGmailSettings = () => {
+    updateSettings(localSettings);
+  };
+
+  // Authorization is bound to the email recorded at authorize time. If the user edits the
+  // email field to a different account, treat as not authorized (must re-authorize).
+  const inputEmail = (localSettings.gmail?.email || '').trim();
+  const authorizedEmail = gmailAuthStatus?.email || '';
+  const emailMismatch = !!gmailAuthStatus?.authorized && inputEmail !== '' && inputEmail !== authorizedEmail;
+  const effectivelyAuthorized = !!gmailAuthStatus?.authorized && !emailMismatch;
+
+  const pollGmailSyncStatus = useCallback(async () => {
+    const status = await fetchSyncStatus();
+    if (status && !status.running) {
+      if (gmailPollRef.current) {
+        clearInterval(gmailPollRef.current);
+        gmailPollRef.current = null;
+      }
+      // Reload settings to refresh lastSyncTime display
+      try {
+        const updatedSettings = await invoke<AppSettings>('get_settings');
+        setLocalSettings(updatedSettings);
+      } catch (err) {
+        console.error('Failed to reload settings:', err);
+      }
+      if (status.errors.length > 0) {
+        setGmailMessage({ type: 'error', text: `${status.message || '同步完成'} (${status.errors.length} 个错误)` });
+      } else if (status.totalArticles > 0) {
+        setGmailMessage({ type: 'success', text: status.message || `同步完成: 提取 ${status.totalArticles} 篇论文` });
+      } else {
+        setGmailMessage({ type: 'info', text: status.message || '同步完成，无新增论文' });
+      }
+    }
+  }, [fetchSyncStatus]);
+
+  // Poll Gmail sync status every 2s while running
+  useEffect(() => {
+    if (gmailSyncProgress?.running) {
+      if (!gmailPollRef.current) {
+        gmailPollRef.current = setInterval(pollGmailSyncStatus, 2000);
+      }
+    }
+    return () => {
+      if (gmailPollRef.current) {
+        clearInterval(gmailPollRef.current);
+        gmailPollRef.current = null;
+      }
+    };
+  }, [gmailSyncProgress?.running, pollGmailSyncStatus]);
+
+  // Fetch Gmail auth + sync status on dialog open
+  useEffect(() => {
+    if (open) {
+      invoke<{ authorized: boolean; email: string }>('gmail_auth_status').then((status) => {
+        setGmailAuthStatus(status);
+      }).catch(() => {
+        setGmailAuthStatus({ authorized: false, email: '' });
+      });
+      // Detect a sync already running (e.g. started by the scheduler)
+      fetchSyncStatus().then((status) => {
+        if (status?.running) {
+          setGmailMessage({ type: 'info', text: '同步进行中...' });
+        }
+      }).catch(console.error);
+    }
+  }, [open, fetchSyncStatus]);
 
   // Cloud Provider handlers
   const handleAddCloudProvider = () => {
@@ -888,7 +1028,9 @@ export const SettingsDialog = ({ open, onClose }: SettingsDialogProps) => {
 
           {localSettings.lastCrawlTime && (
             <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-              上次爬取: {localSettings.lastCrawlTime}
+              上次爬取: {new Date(localSettings.lastCrawlTime).toLocaleString('zh-CN', {
+                year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
+              })}
             </Typography>
           )}
 
@@ -941,6 +1083,201 @@ export const SettingsDialog = ({ open, onClose }: SettingsDialogProps) => {
             }
             label={t('settings.autoLaunch')}
           />
+        </Box>
+
+        <Divider sx={{ my: 2 }} />
+
+        {/* Gmail Settings */}
+        <Box id="section-gmail" sx={{ mb: 3 }}>
+          <Typography variant="subtitle1" gutterBottom sx={{ fontWeight: 600 }}>Gmail 学术推荐</Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            配置 Gmail 账号以自动同步 Google Scholar 学术推荐邮件
+          </Typography>
+
+          <Stack spacing={1.5}>
+            <TextField
+              fullWidth
+              label="Gmail 邮箱地址"
+              value={localSettings.gmail?.email || ''}
+              onChange={(e) =>
+                setLocalSettings({
+                  ...localSettings,
+                  gmail: { ...localSettings.gmail || { email: '', clientId: '', clientSecret: '', apiKey: '', syncIntervalHours: 24, lastSyncTime: undefined }, email: e.target.value }
+                })
+              }
+              onBlur={persistGmailSettings}
+              placeholder="your.email@gmail.com"
+              size="small"
+            />
+            <TextField
+              fullWidth
+              label="Client ID"
+              value={localSettings.gmail?.clientId || ''}
+              onChange={(e) =>
+                setLocalSettings({
+                  ...localSettings,
+                  gmail: { ...localSettings.gmail || { email: '', clientId: '', clientSecret: '', apiKey: '', syncIntervalHours: 24 }, clientId: e.target.value }
+                })
+              }
+              onBlur={persistGmailSettings}
+              placeholder="从 Google Cloud Console 获取"
+              size="small"
+            />
+            <TextField
+              fullWidth
+              label="Client Secret"
+              type="password"
+              value={localSettings.gmail?.clientSecret || ''}
+              onChange={(e) =>
+                setLocalSettings({
+                  ...localSettings,
+                  gmail: { ...localSettings.gmail || { email: '', clientId: '', clientSecret: '', apiKey: '', syncIntervalHours: 24 }, clientSecret: e.target.value }
+                })
+              }
+              onBlur={persistGmailSettings}
+              placeholder="从 Google Cloud Console 获取"
+              size="small"
+            />
+            <TextField
+              fullWidth
+              label="API Key"
+              value={localSettings.gmail?.apiKey || ''}
+              onChange={(e) =>
+                setLocalSettings({
+                  ...localSettings,
+                  gmail: { ...localSettings.gmail || { email: '', clientId: '', clientSecret: '', apiKey: '', syncIntervalHours: 24 }, apiKey: e.target.value }
+                })
+              }
+              onBlur={persistGmailSettings}
+              placeholder="从 Google Cloud Console 获取"
+              size="small"
+            />
+
+            <Divider />
+
+            {/* Authorization */}
+            <Box>
+              {emailMismatch ? (
+                <Alert severity="warning" sx={{ mb: 1 }}>
+                  当前填写的邮箱与已授权账号（{authorizedEmail || '未知'}）不一致，请重新授权
+                </Alert>
+              ) : effectivelyAuthorized ? (
+                <Alert severity="success" sx={{ mb: 1 }}>
+                  已授权: {authorizedEmail}
+                </Alert>
+              ) : (
+                <Alert severity="info" sx={{ mb: 1 }}>
+                  尚未授权
+                </Alert>
+              )}
+              <Box sx={{ display: 'flex', gap: 1 }}>
+                <Button
+                  variant="contained"
+                  size="small"
+                  startIcon={<EmailIcon />}
+                  onClick={handleGmailAuthorize}
+                  disabled={!localSettings.gmail?.clientId || !localSettings.gmail?.clientSecret}
+                >
+                  {gmailAuthStatus?.authorized ? '重新授权' : '授权 Google 账号'}
+                </Button>
+                {gmailAuthStatus?.authorized && (
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    color="error"
+                    onClick={handleGmailLogout}
+                  >
+                    取消授权
+                  </Button>
+                )}
+              </Box>
+            </Box>
+
+            {/* Sync */}
+            {effectivelyAuthorized && (
+              <Box>
+                <Divider sx={{ my: 1 }} />
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+                  <Typography variant="body2" sx={{ fontWeight: 500 }}>自动同步</Typography>
+                  <Box sx={{ display: 'flex', gap: 1 }}>
+                    <Button
+                      variant="contained"
+                      size="small"
+                      onClick={handleGmailSync}
+                      disabled={gmailSyncProgress?.running}
+                      startIcon={gmailSyncProgress?.running ? <CircularProgress size={14} color="inherit" /> : <EmailIcon />}
+                    >
+                      {gmailSyncProgress?.running ? '同步中...' : '立即同步'}
+                    </Button>
+                    {gmailSyncProgress?.running && (
+                      <Button variant="outlined" size="small" color="error" onClick={handleGmailSyncStop}>
+                        停止
+                      </Button>
+                    )}
+                  </Box>
+                </Box>
+
+                {gmailSyncProgress?.running ? (
+                  <Box sx={{ mb: 1.5, p: 1.5, bgcolor: 'action.hover', borderRadius: 1 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                      <CircularProgress size={14} />
+                      <Typography variant="body2" sx={{ fontWeight: 500 }}>正在同步 Scholar Alert 邮件...</Typography>
+                    </Box>
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.25, ml: 3 }}>
+                      <Typography variant="caption" color="text.secondary">
+                        已处理 {gmailSyncProgress.processed}/{gmailSyncProgress.totalEmails || '?'} 封邮件
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        提取 {gmailSyncProgress.totalArticles} 篇论文
+                      </Typography>
+                      {gmailSyncProgress.errors.length > 0 && (
+                        <Typography variant="caption" color="error.main">
+                          {gmailSyncProgress.errors.length} 个错误
+                        </Typography>
+                      )}
+                    </Box>
+                  </Box>
+                ) : null}
+
+                <Box sx={{ mb: 1.5 }}>
+                  <Typography variant="body2" gutterBottom>
+                    同步间隔: 每 {localSettings.gmail?.syncIntervalHours || 24} 小时
+                  </Typography>
+                  <Slider
+                    value={localSettings.gmail?.syncIntervalHours || 24}
+                    onChange={(_, value) =>
+                      setLocalSettings({
+                        ...localSettings,
+                        gmail: { ...localSettings.gmail || { email: '', clientId: '', clientSecret: '', apiKey: '', syncIntervalHours: 24, lastSyncTime: undefined }, syncIntervalHours: value as number }
+                      })
+                    }
+                    onChangeCommitted={persistGmailSettings}
+                    min={1}
+                    max={168}
+                    step={1}
+                    marks={[
+                      { value: 1, label: '1h' },
+                      { value: 6, label: '6h' },
+                      { value: 12, label: '12h' },
+                      { value: 24, label: '24h' },
+                      { value: 72, label: '3d' },
+                      { value: 168, label: '7d' },
+                    ]}
+                    valueLabelDisplay="auto"
+                    size="small"
+                  />
+                </Box>
+
+                {gmailMessage && !gmailSyncProgress?.running && (
+                  <Alert severity={gmailMessage.type} sx={{ mb: 1 }}>{gmailMessage.text}</Alert>
+                )}
+
+                <Typography variant="caption" color="text.secondary">
+                  上次同步: {localSettings.gmail?.lastSyncTime || 'N/A'}
+                </Typography>
+              </Box>
+            )}
+          </Stack>
         </Box>
 
         <Divider sx={{ my: 2 }} />

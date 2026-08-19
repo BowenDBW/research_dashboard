@@ -166,11 +166,23 @@ pub fn init_database(conn: &mut Connection) -> Result<(), String> {
             title TEXT,
             mode TEXT DEFAULT 'chat',
             article_id INTEGER,
+            context_text TEXT,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (article_id) REFERENCES papers(article_id) ON DELETE CASCADE
         );"
     ).map_err(|e| format!("创建 chat_sessions 表失败: {}", e))?;
+
+    // 迁移：旧库的 chat_sessions 没有 context_text 列（存上传文章 PDF 解析后的文本，作为对话上下文）
+    let has_context_col: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM pragma_table_info('chat_sessions') WHERE name = 'context_text'",
+        [],
+        |r| r.get(0),
+    ).unwrap_or(0);
+    if has_context_col == 0 {
+        conn.execute("ALTER TABLE chat_sessions ADD COLUMN context_text TEXT", [])
+            .map_err(|e| format!("为 chat_sessions 增加 context_text 列失败: {}", e))?;
+    }
 
     // Create chat_messages table
     conn.execute_batch(
@@ -183,6 +195,19 @@ pub fn init_database(conn: &mut Connection) -> Result<(), String> {
             FOREIGN KEY (session_id) REFERENCES chat_sessions(session_id) ON DELETE CASCADE
         );"
     ).map_err(|e| format!("创建 chat_messages 表失败: {}", e))?;
+
+    // Create chat_message_articles table - 检索结果：一条消息关联多篇文章（只存 article_id，通过 JOIN papers 取详情）
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS chat_message_articles (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            message_id INTEGER NOT NULL,
+            article_id INTEGER NOT NULL,
+            FOREIGN KEY (message_id) REFERENCES chat_messages(message_id) ON DELETE CASCADE,
+            FOREIGN KEY (article_id) REFERENCES papers(article_id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_cma_message ON chat_message_articles(message_id);
+        CREATE INDEX IF NOT EXISTS idx_cma_article ON chat_message_articles(article_id);"
+    ).map_err(|e| format!("创建 chat_message_articles 表失败: {}", e))?;
 
     // Create user_action_logs table
     conn.execute_batch(
@@ -212,16 +237,14 @@ pub fn init_database(conn: &mut Connection) -> Result<(), String> {
 
 /// Check if database exists and initialize if needed
 pub fn ensure_database() -> Result<DbPool, String> {
-    let db_path = get_db_path()?;
-    let needs_init = !db_path.exists();
-
     let pool = create_pool()?;
 
-    if needs_init {
-        let mut conn = pool.get()
-            .map_err(|e| format!("获取数据库连接失败: {}", e))?;
-        init_database(&mut conn)?;
-    }
+    // 所有建表语句都是 CREATE ... IF NOT EXISTS，幂等且安全。
+    // 必须每次启动都执行，否则新版本新增的表在已存在的旧数据库上永远不会被创建
+    // （旧实现只在库文件首次创建时 init 一次）。
+    let mut conn = pool.get()
+        .map_err(|e| format!("获取数据库连接失败: {}", e))?;
+    init_database(&mut conn)?;
 
     Ok(pool)
 }

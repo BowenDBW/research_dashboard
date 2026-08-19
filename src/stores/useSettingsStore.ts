@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
+import { listen, UnlistenFn } from '@tauri-apps/api/event';
 import { AppSettings, ConnectionTestResult, CloudProviderConfig, LocalProviderConfig, StatsCardConfig } from '../types';
 
 interface SettingsStore {
@@ -63,12 +64,14 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
   },
 
   updateSettings: async (partial) => {
-    set((state) => {
-      const newSettings = { ...state.settings, ...partial };
-      // 异步通过 Rust 写入磁盘
-      invoke('save_settings', { settings: newSettings }).catch(console.error);
-      return { settings: newSettings };
-    });
+    const newSettings = { ...get().settings, ...partial };
+    set({ settings: newSettings });
+    // Await the disk write so callers (e.g. before authorize/sync) can rely on persistence
+    try {
+      await invoke('save_settings', { settings: newSettings });
+    } catch (err) {
+      console.error('Failed to save settings:', err);
+    }
   },
 
   addCloudProvider: async (provider) => {
@@ -172,4 +175,15 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     });
   },
 }));
+
+// 监听后端爬取完成事件，刷新设置（让 lastCrawlTime 显示最新值，无论手动还是定时爬取）
+let crawlerFinishedListener: UnlistenFn | null = null;
+
+export async function initSettingsEventListeners() {
+  if (crawlerFinishedListener) return; // Already initialized
+
+  crawlerFinishedListener = await listen('crawler-finished', () => {
+    useSettingsStore.getState().loadSettings();
+  });
+}
 
