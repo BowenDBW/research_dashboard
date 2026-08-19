@@ -21,6 +21,7 @@ use crawler::{CrawlerHandle, crawler_start, crawler_status, crawler_stop, start_
 use settings::{get_settings, save_settings, test_connection, copy_pdf_to_storage, get_pdf_dir, ensure_settings, ensure_pdfs_dir,
     get_disk_usage, get_storage_stats, cleanup_chat_history, cleanup_reading_history, cleanup_articles_and_pdfs, change_pdf_storage_path};
 use layout::{get_layout_config, save_layout_config};
+use service::data_transfer::{export_database, import_database};
 use gmail::{
     GmailSyncHandle, gmail_authorize, gmail_auth_status, gmail_logout, gmail_sync,
     gmail_sync_status, gmail_sync_stop,
@@ -120,6 +121,9 @@ fn run() {
             cleanup_reading_history,
             cleanup_articles_and_pdfs,
             change_pdf_storage_path,
+            // Data import/export
+            export_database,
+            import_database,
             // History
             history_reading,
             history_chat,

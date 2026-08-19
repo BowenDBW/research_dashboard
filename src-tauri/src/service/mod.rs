@@ -12,6 +12,7 @@ pub mod daily;
 pub mod venues;
 pub mod paper_search;
 pub mod manual_add;
+pub mod data_transfer;
 
 // Re-export all services
 pub use papers::*;
@@ -23,3 +24,4 @@ pub use chat::*;
 pub use daily::*;
 pub use venues::*;
 pub use manual_add::*;
+pub use data_transfer::*;

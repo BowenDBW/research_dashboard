@@ -57,10 +57,13 @@ import {
   SdStorage as SdStorageIcon,
   Edit as EditIcon,
   Email as EmailIcon,
+  FileCopy as FileCopyIcon,
+  Upload as UploadIcon,
+  Download as DownloadIcon,
 } from '@mui/icons-material';
 import { useTranslation } from 'react-i18next';
 import { invoke } from '@tauri-apps/api/core';
-import { open as showOpenDialog } from '@tauri-apps/plugin-dialog';
+import { open as showOpenDialog, save as showSaveDialog } from '@tauri-apps/plugin-dialog';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { useGmailStore } from '../../stores/useGmailStore';
 import { useThemeMode, ThemePreference } from '../../app/ThemeProvider';
@@ -123,6 +126,11 @@ export const SettingsDialog = ({ open, onClose }: SettingsDialogProps) => {
   const [gmailAuthStatus, setGmailAuthStatus] = useState<{ authorized: boolean; email: string } | null>(null);
   const [gmailMessage, setGmailMessage] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
   const gmailPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // 数据导入/导出
+  const [exportScope, setExportScope] = useState<'all' | 'core'>('all');
+  const [dataMessage, setDataMessage] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
+  const [dataBusy, setDataBusy] = useState(false);
+  const [importConfirm, setImportConfirm] = useState<{ open: boolean; path: string }>({ open: false, path: '' });
 
   const appleDevice = isApplePlatform();
 
@@ -209,6 +217,7 @@ export const SettingsDialog = ({ open, onClose }: SettingsDialogProps) => {
   const sections = [
     { id: 'appearance', label: t('settings.appearance'), icon: <PaletteIcon fontSize="small" /> },
     { id: 'storage', label: t('settings.storage'), icon: <StorageIcon fontSize="small" /> },
+    { id: 'data', label: t('settings.data'), icon: <FileCopyIcon fontSize="small" /> },
     { id: 'crawl', label: t('settings.crawler'), icon: <CloudIcon fontSize="small" /> },
     { id: 'gmail', label: 'Gmail', icon: <EmailIcon fontSize="small" /> },
     { id: 'app', label: t('settings.appSettings'), icon: <SettingsIcon fontSize="small" /> },
@@ -428,6 +437,64 @@ export const SettingsDialog = ({ open, onClose }: SettingsDialogProps) => {
   const handleGmailSyncStop = async () => {
     setGmailMessage({ type: 'info', text: '正在停止同步...' });
     await stopSync();
+  };
+
+  // 导出数据：选择保存路径后调用后端生成 .sql dump
+  const handleExportData = async () => {
+    try {
+      const defaultName = `research_dashboard_${new Date().toISOString().slice(0, 10)}.sql`;
+      const selected = await showSaveDialog({
+        defaultPath: defaultName,
+        filters: [{ name: 'SQL', extensions: ['sql'] }],
+        title: t('settings.exportData'),
+      });
+      if (!selected) return;
+      setDataBusy(true);
+      setDataMessage({ type: 'info', text: t('settings.exporting') });
+      const res = await invoke<{ tableCount: number; rowCount: number }>('export_database', {
+        path: selected,
+        scope: exportScope,
+      });
+      setDataMessage({ type: 'success', text: t('settings.exportSuccess', { count: res.tableCount, rows: res.rowCount }) });
+    } catch (err) {
+      console.error('Export failed:', err);
+      setDataMessage({ type: 'error', text: `${t('settings.dataError')}: ${err}` });
+    } finally {
+      setDataBusy(false);
+    }
+  };
+
+  // 选择要导入的 .sql 文件（先弹确认框）
+  const handleImportSelect = async () => {
+    try {
+      const selected = await showOpenDialog({
+        multiple: false,
+        filters: [{ name: 'SQL', extensions: ['sql'] }],
+        title: t('settings.importData'),
+      });
+      if (!selected) return;
+      setImportConfirm({ open: true, path: selected as string });
+    } catch (err) {
+      console.error('Failed to pick file:', err);
+      setDataMessage({ type: 'error', text: `${t('settings.dataError')}: ${err}` });
+    }
+  };
+
+  // 确认后合并导入
+  const handleConfirmImport = async () => {
+    const { path } = importConfirm;
+    setImportConfirm({ open: false, path: '' });
+    try {
+      setDataBusy(true);
+      setDataMessage({ type: 'info', text: t('settings.importing') });
+      const res = await invoke<{ tableCount: number; rowCount: number }>('import_database', { path });
+      setDataMessage({ type: 'success', text: t('settings.importSuccess', { count: res.tableCount, rows: res.rowCount }) });
+    } catch (err) {
+      console.error('Import failed:', err);
+      setDataMessage({ type: 'error', text: `${t('settings.dataError')}: ${err}` });
+    } finally {
+      setDataBusy(false);
+    }
   };
 
   // Persist gmail config to disk immediately on field blur / slider commit,
@@ -993,6 +1060,60 @@ export const SettingsDialog = ({ open, onClose }: SettingsDialogProps) => {
 
         <Divider sx={{ my: 2 }} />
 
+        {/* 数据导入导出 */}
+        <Box id="section-data" sx={{ mb: 3 }}>
+          <Typography variant="subtitle1" gutterBottom sx={{ fontWeight: 600 }}>
+            <FileCopyIcon sx={{ fontSize: 18, mr: 0.5, verticalAlign: 'text-top' }} />
+            {t('settings.data')}
+          </Typography>
+
+          {/* 导出 */}
+          <Box sx={{ mb: 3 }}>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>{t('settings.dataExportDesc')}</Typography>
+            <Typography variant="body2" gutterBottom sx={{ fontWeight: 500 }}>{t('settings.exportScope')}</Typography>
+            <RadioGroup
+              value={exportScope}
+              onChange={(e) => setExportScope(e.target.value as 'all' | 'core')}
+              row
+              sx={{ mb: 1.5 }}
+            >
+              <FormControlLabel value="all" control={<Radio size="small" />} label={t('settings.exportAll')} />
+              <FormControlLabel value="core" control={<Radio size="small" />} label={t('settings.exportCore')} />
+            </RadioGroup>
+            <Button
+              variant="contained"
+              size="small"
+              startIcon={dataBusy ? <CircularProgress size={14} color="inherit" /> : <DownloadIcon />}
+              onClick={handleExportData}
+              disabled={dataBusy}
+            >
+              {t('settings.exportData')}
+            </Button>
+          </Box>
+
+          <Divider sx={{ my: 2 }} />
+
+          {/* 导入 */}
+          <Box>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>{t('settings.dataImportDesc')}</Typography>
+            <Button
+              variant="outlined"
+              size="small"
+              startIcon={<UploadIcon />}
+              onClick={handleImportSelect}
+              disabled={dataBusy}
+            >
+              {t('settings.importData')}
+            </Button>
+          </Box>
+
+          {dataMessage && (
+            <Alert severity={dataMessage.type} sx={{ mt: 2 }}>{dataMessage.text}</Alert>
+          )}
+        </Box>
+
+        <Divider sx={{ my: 2 }} />
+
         {/* Crawler Settings */}
         <Box id="section-crawl" sx={{ mb: 3 }}>
           <Typography variant="subtitle1" gutterBottom sx={{ fontWeight: 600 }}>爬虫设置</Typography>
@@ -1481,6 +1602,20 @@ export const SettingsDialog = ({ open, onClose }: SettingsDialogProps) => {
         <ConfirmDialogActions>
           <Button onClick={() => setConfirmDialogOpen({ open: false, type: 'chat', months: 3 })}>{t('common.cancel')}</Button>
           <Button variant="contained" color="error" onClick={handleConfirmClean}>{t('common.confirm')}</Button>
+        </ConfirmDialogActions>
+      </ConfirmDialog>
+
+      {/* 导入确认对话框（合并语义，不删除现有数据） */}
+      <ConfirmDialog open={importConfirm.open} onClose={() => setImportConfirm({ open: false, path: '' })}>
+        <ConfirmDialogTitle>{t('settings.importConfirmTitle')}</ConfirmDialogTitle>
+        <ConfirmDialogContent>
+          <Alert severity="info" sx={{ mb: 2 }}>
+            {t('settings.importConfirmMessage', { name: importConfirm.path.split(/[\\/]/).pop() || importConfirm.path })}
+          </Alert>
+        </ConfirmDialogContent>
+        <ConfirmDialogActions>
+          <Button onClick={() => setImportConfirm({ open: false, path: '' })}>{t('common.cancel')}</Button>
+          <Button variant="contained" onClick={handleConfirmImport}>{t('common.confirm')}</Button>
         </ConfirmDialogActions>
       </ConfirmDialog>
       <CategorySelectDialog
