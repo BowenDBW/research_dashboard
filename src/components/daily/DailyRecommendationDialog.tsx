@@ -47,8 +47,8 @@ export const DailyRecommendationDialog = ({ open, recommendationId, onClose }: D
       onClose={onClose}
       maxWidth="md"
       fullWidth
-      PaperProps={{
-        sx: { height: '80vh' },
+      slotProps={{
+        paper: { sx: { height: '80vh' } },
       }}
     >
       <DialogTitle>

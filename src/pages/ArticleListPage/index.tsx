@@ -214,7 +214,7 @@ const ArticleListPage = () => {
                   options={venueOptions}
                   getOptionLabel={(option) => option.abbreviation ? `${option.abbreviation} (${option.name})` : option.name}
                   value={localSources ? (venueOptions.find(v => v.name === localSources || v.abbreviation === localSources) || { name: localSources }) : null}
-                  onInputChange={(e, value) => {
+                  onInputChange={(_, value) => {
                     setVenueInputValue(value);
                     handleVenueSearch(value);
                   }}

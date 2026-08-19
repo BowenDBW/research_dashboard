@@ -4,7 +4,7 @@ export interface ModelConfig {
   id: string;           // Unique identifier
   modelName: string;    // Internal model name (e.g., "gpt-4o", "claude-3-opus")
   displayName: string;  // User-facing display name (must be unique)
-  modelPath?: string;   // Model path for MLX models (e.g., "/Users/bowen/models/gemma-4-26b-a4b-it-4bit")
+  modelPath?: string;   // Model path for MLX models (e.g., "~/models/gemma-4-26b-a4b-it-4bit")
 }
 
 export interface CloudProviderConfig {

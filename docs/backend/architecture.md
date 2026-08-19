@@ -448,7 +448,7 @@ Arxiv 论文的 PDF 处理流程：
 
 **重要说明：爬虫不调用 Arxiv API，而是直接爬取 arxiv.org 网站页面**
 
-参考 `/Users/bowen/Code/PYTHON_PROJECT/arxiv_crawler_light` 的实现方式：
+参考 `arxiv_crawler_light` 项目的实现方式：
 
 ### 9.1 爬取流程
 

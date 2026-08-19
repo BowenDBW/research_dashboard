@@ -13,7 +13,7 @@ import {
 } from '@mui/material';
 import { useTranslation } from 'react-i18next';
 import { useSubscriptionStore } from '../../stores';
-import { getAllCategories, getCategoryByCode } from '../../constants/academicCategories';
+import { getAllCategories } from '../../constants/academicCategories';
 
 interface SubscriptionDialogProps {
   open: boolean;
@@ -110,14 +110,14 @@ export const SubscriptionDialog = ({ open, onClose }: SubscriptionDialogProps) =
             options={[]}
             value={localKeywords}
             onChange={(_, newValue) => setLocalKeywords(newValue)}
-            renderTags={(value: string[], getTagProps) =>
+            renderValue={(value: string[], getItemProps) =>
               value.map((option, index) => {
-                const tagProps = getTagProps({ index });
+                const itemProps = getItemProps({ index });
                 return (
                   <Chip
                     size="small"
                     label={option}
-                    {...tagProps}
+                    {...itemProps}
                     key={`${option}-${index}`}
                     onDelete={() => {
                       setLocalKeywords(prev => prev.filter((_, i) => i !== index));
@@ -143,14 +143,14 @@ export const SubscriptionDialog = ({ open, onClose }: SubscriptionDialogProps) =
             options={[]}
             value={localAuthors}
             onChange={(_, newValue) => setLocalAuthors(newValue)}
-            renderTags={(value: string[], getTagProps) =>
+            renderValue={(value: string[], getItemProps) =>
               value.map((option, index) => {
-                const tagProps = getTagProps({ index });
+                const itemProps = getItemProps({ index });
                 return (
                   <Chip
                     size="small"
                     label={option}
-                    {...tagProps}
+                    {...itemProps}
                     key={`${option}-${index}`}
                     onDelete={() => {
                       setLocalAuthors(prev => prev.filter((_, i) => i !== index));
@@ -183,15 +183,15 @@ export const SubscriptionDialog = ({ open, onClose }: SubscriptionDialogProps) =
               return found || { name: code, code: code, parent: '' };
             })}
             onChange={(_, newValue) => setLocalCategories(newValue.map(c => typeof c === 'string' ? c : c.code))}
-            renderTags={(value, getTagProps) =>
+            renderValue={(value, getItemProps) =>
               value.map((option, index) => {
-                const tagProps = getTagProps({ index });
+                const itemProps = getItemProps({ index });
                 const code = typeof option === 'string' ? option : option.code;
                 return (
                   <Chip
                     size="small"
                     label={code}
-                    {...tagProps}
+                    {...itemProps}
                     key={code}
                     onDelete={() => {
                       setLocalCategories(prev => prev.filter((_, i) => i !== index));

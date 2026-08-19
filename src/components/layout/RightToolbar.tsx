@@ -1284,7 +1284,7 @@ export const RightToolbar = ({ open, onToggle }: RightToolbarProps) => {
             </ListItemIcon>
             <ListItemText
               primary={t(config.labelKey)}
-              primaryTypographyProps={{ variant: 'body2' }}
+              slotProps={{ primary: { variant: 'body2' } }}
             />
             {!hiddenPanels.has(id as PanelId) ? (
               <VisibilityIcon fontSize="small" sx={{ color: 'primary.main', ml: 'auto' }} />

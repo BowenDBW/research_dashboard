@@ -705,8 +705,8 @@ export const SettingsDialog = ({ open, onClose }: SettingsDialogProps) => {
       onClose={handleClose}
       maxWidth="md"
       fullWidth
-      PaperProps={{
-        sx: { height: '85vh' },
+      slotProps={{
+        paper: { sx: { height: '85vh' } },
       }}
     >
       <DialogTitle>
@@ -749,7 +749,7 @@ export const SettingsDialog = ({ open, onClose }: SettingsDialogProps) => {
                   }}
                 >
                   <ListItemIcon sx={{ minWidth: 32 }}>{section.icon}</ListItemIcon>
-                  <ListItemText primary={section.label} primaryTypographyProps={{ variant: 'body2' }} />
+                  <ListItemText primary={section.label} slotProps={{ primary: { variant: 'body2' } }} />
                   {section.children && (
                     <ExpandMoreIcon
                       sx={{
@@ -777,7 +777,7 @@ export const SettingsDialog = ({ open, onClose }: SettingsDialogProps) => {
                         }}
                       >
                         <ListItemIcon sx={{ minWidth: 28 }}>{child.icon}</ListItemIcon>
-                        <ListItemText primary={child.label} primaryTypographyProps={{ variant: 'body2' }} />
+                        <ListItemText primary={child.label} slotProps={{ primary: { variant: 'body2' } }} />
                       </ListItemButton>
                     ))}
                   </List>
@@ -813,7 +813,7 @@ export const SettingsDialog = ({ open, onClose }: SettingsDialogProps) => {
             <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>{t('settings.language')}</Typography>
             <Select
               value={language}
-              onChange={(e) => setLanguage(e.target.value as string)}
+              onChange={(e) => setLanguage(e.target.value as 'zh' | 'en')}
               size="small"
               sx={{ minWidth: 150 }}
             >

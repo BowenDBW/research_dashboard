@@ -1,4 +1,5 @@
 import { Box, Typography, Link } from '@mui/material';
+import type { JSX } from 'react';
 
 interface MarkdownViewerProps {
   content: string;

@@ -31,3 +31,6 @@ src-tauri/mlx-chat-service-*
 src-tauri/binaries/
 
 temp
+# Editor/IDE temp files
+*.tmp.*
+*.tmp

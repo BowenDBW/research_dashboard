@@ -77,7 +77,7 @@ export const ContextMenu = ({ items, children }: ContextMenuProps) => {
               )}
               <ListItemText
                 primary={item.label}
-                primaryTypographyProps={{ variant: 'body2' }}
+                slotProps={{ primary: { variant: 'body2' } }}
               />
             </MenuItem>
           </div>
