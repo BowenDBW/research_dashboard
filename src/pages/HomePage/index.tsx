@@ -30,7 +30,6 @@ import {
   Search as SearchIcon,
   SmartToy as SmartToyIcon,
   Person as PersonIcon,
-  Cloud as CloudIcon,
   Dns as DnsIcon,
   Apple as AppleIcon,
   Settings as SettingsIcon,
@@ -62,8 +61,7 @@ interface ModelOption {
   id: string;
   displayName: string;
   providerName: string;
-  type: 'cloud' | 'local';
-  localType?: 'server' | 'mlx';  // Only for local models
+  type: 'mlx' | 'port';
 }
 
 const modeToTab: Partial<Record<ChatMode, number>> = {
@@ -105,29 +103,28 @@ const HomePage = () => {
   // Build model options from settings
   const modelOptions = useMemo<ModelOption[]>(() => {
     const options: ModelOption[] = [];
-    settings.cloudProviders.forEach((provider) => {
-      provider.models.forEach((model) => {
-        options.push({
-          id: model.id,
-          displayName: model.displayName || model.modelName,
-          providerName: provider.name,
-          type: 'cloud',
-        });
+    // MLX 本地模型
+    settings.mlxModels.forEach((model) => {
+      options.push({
+        id: model.id,
+        displayName: model.displayName || model.modelName,
+        providerName: 'MLX',
+        type: 'mlx',
       });
     });
-    settings.localProviders.forEach((provider) => {
+    // 端口调用（OpenAI 兼容服务：Ollama / 云端 API 通用）
+    settings.portProviders.forEach((provider) => {
       provider.models.forEach((model) => {
         options.push({
           id: model.id,
           displayName: model.displayName || model.modelName,
           providerName: provider.name,
-          type: 'local',
-          localType: provider.type,
+          type: 'port',
         });
       });
     });
     return options;
-  }, [settings.cloudProviders, settings.localProviders]);
+  }, [settings.mlxModels, settings.portProviders]);
 
   // Auto scroll to bottom when messages change
   useEffect(() => {
@@ -387,9 +384,7 @@ const HomePage = () => {
                     if (!model) return <Typography variant="body2">{t('homePage.selectModel')}</Typography>;
                     return (
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                        {model.type === 'cloud' ? (
-                          <CloudIcon sx={{ fontSize: 16 }} color="primary" />
-                        ) : model.localType === 'mlx' ? (
+                        {model.type === 'mlx' ? (
                           <AppleIcon sx={{ fontSize: 16, color: '#A3AAAE' }} />
                         ) : (
                           <DnsIcon sx={{ fontSize: 16 }} color="secondary" />
@@ -406,9 +401,7 @@ const HomePage = () => {
                   {modelOptions.map((model) => (
                     <MenuItem key={model.id} value={model.id}>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        {model.type === 'cloud' ? (
-                          <CloudIcon sx={{ fontSize: 18 }} color="primary" />
-                        ) : model.localType === 'mlx' ? (
+                        {model.type === 'mlx' ? (
                           <AppleIcon sx={{ fontSize: 18, color: '#A3AAAE' }} />
                         ) : (
                           <DnsIcon sx={{ fontSize: 18 }} color="secondary" />

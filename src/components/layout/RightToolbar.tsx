@@ -26,6 +26,8 @@ import {
   DialogActions,
   Breadcrumbs,
   Link,
+  Snackbar,
+  Alert,
 } from '@mui/material';
 import {
   ArrowForward as ArrowForwardIcon,
@@ -305,6 +307,10 @@ export const RightToolbar = ({ open, onToggle }: RightToolbarProps) => {
   }
   const [crawlerRunning, setCrawlerRunning] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // 爬虫启动失败 / 被跳过的提示
+  const [snackbarOpen, setSnackbarOpen] = useState(false);
+  const [snackbarMessage, setSnackbarMessage] = useState('');
+  const [snackbarSeverity, setSnackbarSeverity] = useState<'success' | 'warning' | 'error'>('warning');
 
   // Start polling crawler status
   const startCrawlPolling = useCallback(() => {
@@ -318,6 +324,12 @@ export const RightToolbar = ({ open, onToggle }: RightToolbarProps) => {
             pollRef.current = null;
           }
           setCrawlerRunning(false);
+          // 爬取被跳过 / 失败时给出提示（如"上次爬取刚结束，跳过"），避免按钮无声闪回
+          if (status.errors && status.errors.length > 0) {
+            setSnackbarMessage(status.errors.join('；'));
+            setSnackbarSeverity('warning');
+            setSnackbarOpen(true);
+          }
           // 后端 engine 爬取完成时已写入真实的 lastCrawlTime，这里重新拉取。
           // 不要用本地 ISO 时间覆盖——旧实现会把格式写坏、导致调度器解析失败卡死。
           loadSettings();
@@ -608,6 +620,9 @@ export const RightToolbar = ({ open, onToggle }: RightToolbarProps) => {
                   startCrawlPolling();
                 } catch (err) {
                   console.error('Failed to start crawler', err);
+                  setSnackbarMessage(typeof err === 'string' ? err : '爬虫启动失败');
+                  setSnackbarSeverity('error');
+                  setSnackbarOpen(true);
                 }
               }}
             >
@@ -1378,6 +1393,18 @@ export const RightToolbar = ({ open, onToggle }: RightToolbarProps) => {
           }}
         />
       </IconButton>
+
+      {/* 爬虫状态提示 */}
+      <Snackbar
+        open={snackbarOpen}
+        autoHideDuration={4000}
+        onClose={() => setSnackbarOpen(false)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert onClose={() => setSnackbarOpen(false)} severity={snackbarSeverity} sx={{ width: '100%' }}>
+          {snackbarMessage}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 };

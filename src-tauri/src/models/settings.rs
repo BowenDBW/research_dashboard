@@ -1,28 +1,14 @@
 // Settings models
+//
+// 注意：运行时 settings 读写走的是 serde_json::Value（settings.rs），
+// 这里仅作结构说明，保持与磁盘 settings.json 的新结构一致：
+//   mlxModels（扁平 MLX 模型列表）+ portProviders（OpenAI 兼容端口服务，Ollama / 云端 API 通用）
 
 use serde::{Deserialize, Serialize};
 
-/// Cloud provider configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CloudProvider {
-    pub id: String,
-    pub name: String,
-    pub endpoint: String,
-    pub api_key: String,
-    pub models: Vec<ModelInfo>,
-}
-
-/// Local provider configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LocalProvider {
-    pub id: String,
-    pub name: String,
-    pub provider_type: String,
-    pub endpoint: String,
-    pub models: Vec<ModelInfo>,
-}
-
-/// Model information
+/// 模型配置（port 服务与 MLX 通用）
+/// - port 服务：`model_name` 是发给 OpenAI 兼容 API 的模型名
+/// - MLX：`model_name` 存模型路径，`display_name` 是展示名
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModelInfo {
     pub id: String,
@@ -30,7 +16,17 @@ pub struct ModelInfo {
     pub display_name: String,
 }
 
-/// Application settings
+/// OpenAI 兼容端口服务（Ollama / 云端 API 通用）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PortProvider {
+    pub id: String,
+    pub name: String,
+    pub endpoint: String,
+    pub api_key: String,
+    pub models: Vec<ModelInfo>,
+}
+
+/// 应用设置
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppSettings {
     pub crawler_categories: Vec<String>,
@@ -38,8 +34,8 @@ pub struct AppSettings {
     pub last_crawl_time: Option<String>,
     pub pdf_storage_path: String,
     pub auto_launch: bool,
-    pub cloud_providers: Vec<CloudProvider>,
-    pub local_providers: Vec<LocalProvider>,
+    pub mlx_models: Vec<ModelInfo>,
+    pub port_providers: Vec<PortProvider>,
     pub selected_model_id: Option<String>,
 }
 
@@ -51,8 +47,8 @@ impl Default for AppSettings {
             last_crawl_time: None,
             pdf_storage_path: String::new(),
             auto_launch: false,
-            cloud_providers: vec![],
-            local_providers: vec![],
+            mlx_models: vec![],
+            port_providers: vec![],
             selected_model_id: None,
         }
     }

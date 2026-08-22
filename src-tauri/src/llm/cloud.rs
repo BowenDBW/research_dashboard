@@ -39,16 +39,9 @@ impl CloudLlmProvider {
             max_tokens: Some(4096),
         };
 
-        // Endpoint should already include /v1 if needed
-        let url = format!("{}/chat/completions", self.endpoint);
-
-        // Debug output
-        eprintln!("[DEBUG] Cloud chat request:");
-        eprintln!("[DEBUG]   endpoint: {}", self.endpoint);
-        eprintln!("[DEBUG]   url: {}", url);
-        eprintln!("[DEBUG]   model: {}", self.model);
-        eprintln!("[DEBUG]   api_key length: {} (empty: {})", self.api_key.len(), self.api_key.is_empty());
-        eprintln!("[DEBUG]   messages count: {}", request.messages.len());
+        // 统一补 /v1：Ollama 的 OpenAI 兼容接口挂在 /v1 下（http://127.0.0.1:11434/v1/chat/completions），
+        // 云端 endpoint 一般已含 /v1。不补会拼出 http://127.0.0.1:11434/chat/completions，Ollama 返回 404。
+        let url = format!("{}/chat/completions", ensure_v1_path(&self.endpoint));
 
         let response = self.client
             .post(&url)
@@ -90,8 +83,7 @@ impl CloudLlmProvider {
             max_tokens: Some(4096),
         };
 
-        // Endpoint should already include /v1 if needed
-        let url = format!("{}/chat/completions", self.endpoint);
+        let url = format!("{}/chat/completions", ensure_v1_path(&self.endpoint));
 
         let response = self.client
             .post(&url)
@@ -145,7 +137,7 @@ impl CloudLlmProvider {
             .build()
             .map_err(|e| format!("创建HTTP客户端失败: {}", e))?;
 
-        let url = format!("{}/models", endpoint);
+        let url = format!("{}/models", ensure_v1_path(endpoint));
 
         let response = client
             .get(&url)
@@ -169,32 +161,30 @@ impl CloudLlmProvider {
     }
 }
 
-/// Test connection for a local server provider (Ollama style)
-pub async fn test_local_connection(endpoint: &str) -> Result<ConnectionTestResult, String> {
-    let client = Client::builder()
-        .timeout(Duration::from_secs(30))
-        .build()
-        .map_err(|e| format!("创建HTTP客户端失败: {}", e))?;
-
-    // Ollama uses /api/tags endpoint
-    let url = format!("{}/api/tags", endpoint);
-
-    let response = client
-        .get(&url)
-        .send()
-        .await
-        .map_err(|e| format!("发送请求失败: {}", e))?;
-
-    if response.status().is_success() {
-        Ok(ConnectionTestResult {
-            success: true,
-            message: "连接成功".to_string(),
-        })
+/// 把 endpoint 归一化为 OpenAI 兼容的 base URL（以 `/v1` 结尾）。
+///
+/// Ollama 的 OpenAI 兼容接口挂在 `/v1` 下（`http://127.0.0.1:11434/v1/chat/completions`），
+/// 云端（OpenAI / DeepSeek 等）的 endpoint 一般已含 `/v1`。统一补上，幂等：
+/// 无论用户填 `http://127.0.0.1:11434`、`http://127.0.0.1:11434/` 还是 `https://api.openai.com/v1`，
+/// 都得到以 `/v1` 结尾的 base URL，避免拼出 404 地址。
+fn ensure_v1_path(endpoint: &str) -> String {
+    let trimmed = endpoint.trim_end_matches('/');
+    if trimmed.ends_with("/v1") {
+        trimmed.to_string()
     } else {
-        let status = response.status();
-        Ok(ConnectionTestResult {
-            success: false,
-            message: format!("HTTP 错误: {}", status),
-        })
+        format!("{}/v1", trimmed)
+    }
+}
+
+#[cfg(test)]
+mod url_tests {
+    use super::ensure_v1_path;
+
+    #[test]
+    fn normalizes_endpoint_to_v1() {
+        assert_eq!(ensure_v1_path("http://127.0.0.1:11434"), "http://127.0.0.1:11434/v1");
+        assert_eq!(ensure_v1_path("http://127.0.0.1:11434/"), "http://127.0.0.1:11434/v1");
+        assert_eq!(ensure_v1_path("https://api.openai.com/v1"), "https://api.openai.com/v1");
+        assert_eq!(ensure_v1_path("https://api.deepseek.com/v1/"), "https://api.deepseek.com/v1");
     }
 }

@@ -13,7 +13,6 @@ import {
   RadioGroup,
   Radio,
   FormControl,
-  FormLabel,
   Alert,
   Divider,
   Accordion,
@@ -45,7 +44,6 @@ import {
   Cloud as CloudIcon,
   Dns as DnsIcon,
   Apple as AppleIcon,
-  Terminal as TerminalIcon,
   Palette as PaletteIcon,
   Storage as StorageIcon,
   Settings as SettingsIcon,
@@ -69,7 +67,7 @@ import { useSettingsStore } from '../../stores/useSettingsStore';
 import { useGmailStore } from '../../stores/useGmailStore';
 import { useThemeMode, ThemePreference } from '../../app/ThemeProvider';
 import { useLanguageStore } from '../../stores/useLanguageStore';
-import { CloudProviderConfig, LocalProviderConfig, LocalProviderType, ModelConfig, AppSettings } from '../../types';
+import { PortProviderConfig, ModelConfig, AppSettings } from '../../types';
 import { CategorySelectDialog } from '../common/CategorySelectDialog';
 import { getCategoryByCode } from '../../constants/academicCategories';
 
@@ -224,8 +222,8 @@ export const SettingsDialog = ({ open, onClose }: SettingsDialogProps) => {
     { id: 'gmail', label: 'Gmail', icon: <EmailIcon fontSize="small" /> },
     { id: 'app', label: t('settings.appSettings'), icon: <SettingsIcon fontSize="small" /> },
     { id: 'llm', label: t('settings.llmSettings'), icon: <SmartToyIcon fontSize="small" />, children: [
-      { id: 'llm-cloud', label: t('settings.cloudModels'), icon: <CloudIcon fontSize="small" /> },
-      { id: 'llm-local', label: t('settings.localModels'), icon: <DnsIcon fontSize="small" /> },
+      { id: 'llm-mlx', label: t('settings.mlxModels'), icon: <AppleIcon fontSize="small" /> },
+      { id: 'llm-port', label: t('settings.portServices'), icon: <DnsIcon fontSize="small" /> },
     ]},
   ];
 
@@ -258,7 +256,7 @@ export const SettingsDialog = ({ open, onClose }: SettingsDialogProps) => {
     }
   }, [open, localSettings, updateSettings]);
 
-  const handleTestConnection = async (providerId: string, type: 'cloud' | 'local') => {
+  const handleTestConnection = async (providerId: string, type: 'mlx' | 'port') => {
     const result = await testConnection(providerId, type);
     setTestResults((prev) => ({ ...prev, [`${type}-${providerId}`]: result }));
   };
@@ -602,137 +600,85 @@ export const SettingsDialog = ({ open, onClose }: SettingsDialogProps) => {
     }
   }, [open, fetchSyncStatus]);
 
-  // Cloud Provider handlers
-  const handleAddCloudProvider = () => {
-    const newProvider: CloudProviderConfig = {
+  // 端口调用（OpenAI 兼容服务）handlers
+  const handleAddPortProvider = () => {
+    const newProvider: PortProviderConfig = {
       id: generateId(),
-      name: '新云端服务',
-      endpoint: '',
+      name: '新端口服务',
+      endpoint: 'http://127.0.0.1:11434',
       apiKey: '',
       models: [],
     };
-    setLocalSettings({ ...localSettings, cloudProviders: [...localSettings.cloudProviders, newProvider] });
+    setLocalSettings({ ...localSettings, portProviders: [...localSettings.portProviders, newProvider] });
   };
 
-  const handleUpdateCloudProvider = (id: string, updates: Partial<CloudProviderConfig>) => {
+  const handleUpdatePortProvider = (id: string, updates: Partial<PortProviderConfig>) => {
     setLocalSettings({
       ...localSettings,
-      cloudProviders: localSettings.cloudProviders.map((p) =>
+      portProviders: localSettings.portProviders.map((p) =>
         p.id === id ? { ...p, ...updates } : p
       ),
     });
   };
 
-  const handleRemoveCloudProvider = (id: string) => {
+  const handleRemovePortProvider = (id: string) => {
     setLocalSettings({
       ...localSettings,
-      cloudProviders: localSettings.cloudProviders.filter((p) => p.id !== id),
+      portProviders: localSettings.portProviders.filter((p) => p.id !== id),
     });
   };
 
-  // Local Provider handlers
-  const handleAddLocalProvider = (type: LocalProviderType = 'server') => {
-    const newProvider: LocalProviderConfig = {
-      id: generateId(),
-      name: type === 'mlx' ? 'MLX' : '新本地服务',
-      type,
-      endpoint: type === 'mlx' ? '' : 'http://localhost:11434',
-      models: [],
-    };
-    setLocalSettings({ ...localSettings, localProviders: [...localSettings.localProviders, newProvider] });
-  };
-
-  const handleUpdateLocalProvider = (id: string, updates: Partial<LocalProviderConfig>) => {
+  // 端口服务下的模型 handlers
+  const handleAddPortModel = (providerId: string) => {
+    const newModel: ModelConfig = { id: generateId(), modelName: '', displayName: '' };
     setLocalSettings({
       ...localSettings,
-      localProviders: localSettings.localProviders.map((p) =>
-        p.id === id ? { ...p, ...updates } : p
+      portProviders: localSettings.portProviders.map((p) =>
+        p.id === providerId ? { ...p, models: [...p.models, newModel] } : p
       ),
     });
   };
 
-  const handleRemoveLocalProvider = (id: string) => {
+  const handleUpdatePortModel = (providerId: string, modelId: string, updates: Partial<ModelConfig>) => {
     setLocalSettings({
       ...localSettings,
-      localProviders: localSettings.localProviders.filter((p) => p.id !== id),
+      portProviders: localSettings.portProviders.map((p) =>
+        p.id === providerId
+          ? { ...p, models: p.models.map((m) => (m.id === modelId ? { ...m, ...updates } : m)) }
+          : p
+      ),
     });
   };
 
-  // Model handlers
-  const handleAddModel = (providerId: string, type: 'cloud' | 'local') => {
-    const newModel: ModelConfig = {
-      id: generateId(),
-      modelName: '',
-      displayName: '',
-    };
-
-    if (type === 'cloud') {
-      setLocalSettings({
-        ...localSettings,
-        cloudProviders: localSettings.cloudProviders.map((p) =>
-          p.id === providerId ? { ...p, models: [...p.models, newModel] } : p
-        ),
-      });
-    } else {
-      setLocalSettings({
-        ...localSettings,
-        localProviders: localSettings.localProviders.map((p) =>
-          p.id === providerId ? { ...p, models: [...p.models, newModel] } : p
-        ),
-      });
-    }
+  const handleRemovePortModel = (providerId: string, modelId: string) => {
+    setLocalSettings({
+      ...localSettings,
+      portProviders: localSettings.portProviders.map((p) =>
+        p.id === providerId ? { ...p, models: p.models.filter((m) => m.id !== modelId) } : p
+      ),
+    });
   };
 
-  const handleUpdateModel = (
-    providerId: string,
-    modelId: string,
-    updates: Partial<ModelConfig>,
-    type: 'cloud' | 'local'
-  ) => {
-    if (type === 'cloud') {
-      setLocalSettings({
-        ...localSettings,
-        cloudProviders: localSettings.cloudProviders.map((p) =>
-          p.id === providerId
-            ? { ...p, models: p.models.map((m) => (m.id === modelId ? { ...m, ...updates } : m)) }
-            : p
-        ),
-      });
-    } else {
-      setLocalSettings({
-        ...localSettings,
-        localProviders: localSettings.localProviders.map((p) =>
-          p.id === providerId
-            ? { ...p, models: p.models.map((m) => (m.id === modelId ? { ...m, ...updates } : m)) }
-            : p
-        ),
-      });
-    }
+  // MLX 模型 handlers（扁平模型列表，无服务包装）
+  const handleAddMlxModel = () => {
+    const newModel: ModelConfig = { id: generateId(), modelName: '', displayName: '' };
+    setLocalSettings({ ...localSettings, mlxModels: [...localSettings.mlxModels, newModel] });
   };
 
-  const handleRemoveModel = (providerId: string, modelId: string, type: 'cloud' | 'local') => {
-    if (type === 'cloud') {
-      setLocalSettings({
-        ...localSettings,
-        cloudProviders: localSettings.cloudProviders.map((p) =>
-          p.id === providerId ? { ...p, models: p.models.filter((m) => m.id !== modelId) } : p
-        ),
-      });
-    } else {
-      setLocalSettings({
-        ...localSettings,
-        localProviders: localSettings.localProviders.map((p) =>
-          p.id === providerId ? { ...p, models: p.models.filter((m) => m.id !== modelId) } : p
-        ),
-      });
-    }
+  const handleUpdateMlxModel = (modelId: string, updates: Partial<ModelConfig>) => {
+    setLocalSettings({
+      ...localSettings,
+      mlxModels: localSettings.mlxModels.map((m) =>
+        m.id === modelId ? { ...m, ...updates } : m
+      ),
+    });
   };
 
-  const getLocalProviderIcon = (type: LocalProviderType) => {
-    if (type === 'mlx') {
-      return <AppleIcon fontSize="small" sx={{ color: '#A3AAAE' }} />;
-    }
-    return <DnsIcon fontSize="small" color="secondary" />;
+  const handleRemoveMlxModel = (modelId: string) => {
+    setLocalSettings({
+      ...localSettings,
+      mlxModels: localSettings.mlxModels.filter((m) => m.id !== modelId),
+    });
   };
 
   return (
@@ -1491,66 +1437,46 @@ export const SettingsDialog = ({ open, onClose }: SettingsDialogProps) => {
             {t('settings.llmSettingsDesc')}
           </Typography>
 
-          {/* Cloud Providers Section */}
-          <Box id="section-llm-cloud" sx={{ mb: 3 }}>
+          {/* MLX 本地模型 Section */}
+          <Box id="section-llm-mlx" sx={{ mb: 3 }}>
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                <CloudIcon fontSize="small" color="primary" />
-                <Typography variant="body2" sx={{ fontWeight: 500 }}>{t('settings.cloudModels')}</Typography>
+                <AppleIcon fontSize="small" sx={{ color: '#A3AAAE' }} />
+                <Typography variant="body2" sx={{ fontWeight: 500 }}>{t('settings.mlxModels')}</Typography>
               </Box>
-              <Button size="small" startIcon={<AddIcon />} onClick={handleAddCloudProvider}>{t('common.add')}</Button>
+              {appleDevice && <Button size="small" startIcon={<AddIcon />} onClick={handleAddMlxModel}>{t('common.add')}</Button>}
             </Box>
 
-            {localSettings.cloudProviders.length === 0 ? (
+            {!appleDevice && (
+              <Alert severity="info" sx={{ mb: 1 }}>{t('settings.mlxOnlyApple')}</Alert>
+            )}
+
+            {localSettings.mlxModels.length === 0 ? (
               <Box sx={{ py: 1.5, textAlign: 'center', bgcolor: 'action.hover', borderRadius: 1 }}>
-                <Typography variant="body2" color="text.secondary">{t('settings.noCloudConfig')}</Typography>
+                <Typography variant="body2" color="text.secondary">{t('settings.noMlxConfig')}</Typography>
               </Box>
             ) : (
               <Stack spacing={1}>
-                {localSettings.cloudProviders.map((provider) => (
-                  <Accordion key={provider.id} defaultExpanded={false}>
-                    <AccordionSummary expandIcon={<ExpandMoreIcon />} sx={{ minHeight: 40, '& .MuiAccordionSummary-content': { my: 0.5 } }}>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, width: '100%', pr: 2 }}>
-                        <CloudIcon fontSize="small" color="primary" />
-                        <Typography variant="body2" sx={{ flex: 1 }}>{provider.name || t('settings.unnamedService')}</Typography>
-                        <Chip label={`${provider.models.length} ${t('settings.models')}`} size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
-                        <IconButton size="small" onClick={(e) => { e.stopPropagation(); handleRemoveCloudProvider(provider.id); }}>
-                          <DeleteIcon fontSize="small" />
-                        </IconButton>
-                      </Box>
-                    </AccordionSummary>
-                    <AccordionDetails>
-                      <Stack spacing={1.5}>
-                        <TextField fullWidth label={t('settings.serviceName')} value={provider.name} onChange={(e) => handleUpdateCloudProvider(provider.id, { name: e.target.value })} size="small" />
-                        <TextField fullWidth label={t('settings.apiEndpoint')} value={provider.endpoint} onChange={(e) => handleUpdateCloudProvider(provider.id, { endpoint: e.target.value })} placeholder="https://api.openai.com/v1" size="small" />
-                        <TextField fullWidth label={t('settings.apiKey')} type="password" value={provider.apiKey} onChange={(e) => handleUpdateCloudProvider(provider.id, { apiKey: e.target.value })} size="small" />
-                        <Button variant="outlined" size="small" onClick={() => handleTestConnection(provider.id, 'cloud')} sx={{ alignSelf: 'flex-start' }}>{t('settings.testConnection')}</Button>
-                        {testResults[`cloud-${provider.id}`] && (
-                          <Alert severity={testResults[`cloud-${provider.id}`].success ? 'success' : 'error'}>{testResults[`cloud-${provider.id}`].message}</Alert>
-                        )}
-                        <Divider />
-                        <Box>
-                          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
-                            <Typography variant="body2">{t('settings.modelList')}</Typography>
-                            <Button size="small" startIcon={<AddIcon />} onClick={() => handleAddModel(provider.id, 'cloud')}>{t('common.add')}</Button>
-                          </Box>
-                          {provider.models.length === 0 ? (
-                            <Typography variant="body2" color="text.secondary">{t('settings.noModels')}</Typography>
-                          ) : (
-                            <Stack spacing={1}>
-                              {provider.models.map((model) => (
-                                <Box key={model.id} sx={{ display: 'flex', gap: 1, alignItems: 'center', p: 1, bgcolor: 'action.hover', borderRadius: 1 }}>
-                                  <TextField size="small" label={t('settings.modelName')} value={model.modelName} onChange={(e) => handleUpdateModel(provider.id, model.id, { modelName: e.target.value }, 'cloud')} placeholder="gpt-4o" sx={{ flex: 1 }} />
-                                  <TextField size="small" label={t('settings.displayName')} value={model.displayName} onChange={(e) => handleUpdateModel(provider.id, model.id, { displayName: e.target.value }, 'cloud')} placeholder="GPT-4o" sx={{ flex: 1 }} />
-                                  <IconButton size="small" onClick={() => handleRemoveModel(provider.id, model.id, 'cloud')}><DeleteIcon fontSize="small" /></IconButton>
-                                </Box>
-                              ))}
-                            </Stack>
-                          )}
-                        </Box>
-                      </Stack>
-                    </AccordionDetails>
-                  </Accordion>
+                {localSettings.mlxModels.map((model) => (
+                  <Box key={model.id} sx={{ display: 'flex', gap: 1, alignItems: 'center', p: 1, bgcolor: 'action.hover', borderRadius: 1 }}>
+                    <TextField
+                      size="small"
+                      label={t('settings.modelPath')}
+                      value={model.modelName}
+                      onChange={(e) => handleUpdateMlxModel(model.id, { modelName: e.target.value })}
+                      placeholder="mlx-community/Llama-3.2-3B-Instruct-4bit"
+                      sx={{ flex: 1 }}
+                    />
+                    <TextField
+                      size="small"
+                      label={t('settings.displayName')}
+                      value={model.displayName}
+                      onChange={(e) => handleUpdateMlxModel(model.id, { displayName: e.target.value })}
+                      placeholder="Llama 3"
+                      sx={{ flex: 1 }}
+                    />
+                    <IconButton size="small" onClick={() => handleRemoveMlxModel(model.id)}><DeleteIcon fontSize="small" /></IconButton>
+                  </Box>
                 ))}
               </Stack>
             )}
@@ -1558,78 +1484,46 @@ export const SettingsDialog = ({ open, onClose }: SettingsDialogProps) => {
 
           <Divider sx={{ my: 2 }} />
 
-          {/* Local Providers Section */}
-          <Box id="section-llm-local">
+          {/* 端口调用 Section（OpenAI 兼容服务：Ollama / 云端 API 通用） */}
+          <Box id="section-llm-port">
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                 <DnsIcon fontSize="small" color="secondary" />
-                <Typography variant="body2" sx={{ fontWeight: 500 }}>{t('settings.localModels')}</Typography>
+                <Typography variant="body2" sx={{ fontWeight: 500 }}>{t('settings.portServices')}</Typography>
               </Box>
-              <Box sx={{ display: 'flex', gap: 1 }}>
-                <Button size="small" startIcon={<TerminalIcon />} onClick={() => handleAddLocalProvider('server')}>{t('settings.addPort')}</Button>
-                {appleDevice && <Button size="small" startIcon={<AppleIcon />} onClick={() => handleAddLocalProvider('mlx')}>MLX</Button>}
-              </Box>
+              <Button size="small" startIcon={<AddIcon />} onClick={handleAddPortProvider}>{t('common.add')}</Button>
             </Box>
 
-            {!appleDevice && (
-              <Alert severity="info" sx={{ mb: 1 }}>{t('settings.mlxOnlyApple')}</Alert>
-            )}
-
-            {localSettings.localProviders.length === 0 ? (
+            {localSettings.portProviders.length === 0 ? (
               <Box sx={{ py: 1.5, textAlign: 'center', bgcolor: 'action.hover', borderRadius: 1 }}>
-                <Typography variant="body2" color="text.secondary">{t('settings.noLocalConfig')}</Typography>
+                <Typography variant="body2" color="text.secondary">{t('settings.noPortConfig')}</Typography>
               </Box>
             ) : (
               <Stack spacing={1}>
-                {localSettings.localProviders.map((provider) => (
+                {localSettings.portProviders.map((provider) => (
                   <Accordion key={provider.id} defaultExpanded={false}>
                     <AccordionSummary expandIcon={<ExpandMoreIcon />} sx={{ minHeight: 40, '& .MuiAccordionSummary-content': { my: 0.5 } }}>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, width: '100%', pr: 2 }}>
-                        {getLocalProviderIcon(provider.type)}
+                        <DnsIcon fontSize="small" color="secondary" />
                         <Typography variant="body2" sx={{ flex: 1 }}>{provider.name || t('settings.unnamedService')}</Typography>
-                        <Chip label={provider.type === 'mlx' ? 'MLX' : t('settings.portService')} size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
                         <Chip label={`${provider.models.length} ${t('settings.models')}`} size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
-                        <IconButton size="small" onClick={(e) => { e.stopPropagation(); handleRemoveLocalProvider(provider.id); }}><DeleteIcon fontSize="small" /></IconButton>
+                        <IconButton size="small" onClick={(e) => { e.stopPropagation(); handleRemovePortProvider(provider.id); }}><DeleteIcon fontSize="small" /></IconButton>
                       </Box>
                     </AccordionSummary>
                     <AccordionDetails>
                       <Stack spacing={1.5}>
-                        <TextField fullWidth label={t('settings.serviceName')} value={provider.name} onChange={(e) => handleUpdateLocalProvider(provider.id, { name: e.target.value })} size="small" />
-                        <FormControl size="small">
-                          <FormLabel>{t('settings.serverType')}</FormLabel>
-                          <Select
-                            value={provider.type}
-                            onChange={(e) => handleUpdateLocalProvider(provider.id, { type: e.target.value as LocalProviderType, endpoint: e.target.value === 'mlx' ? '' : 'http://localhost:11434' })}
-                            disabled={!appleDevice && provider.type === 'mlx'}
-                          >
-                            <MenuItem value="server">{t('settings.server')}</MenuItem>
-                            <MenuItem value="mlx" disabled={!appleDevice}>{t('settings.mlx')}</MenuItem>
-                          </Select>
-                        </FormControl>
-                        {provider.type === 'server' && (
-                          <TextField fullWidth label={t('settings.serviceAddress')} value={provider.endpoint} onChange={(e) => handleUpdateLocalProvider(provider.id, { endpoint: e.target.value })} placeholder="http://localhost:11434" size="small" />
-                        )}
-                        {provider.type === 'mlx' && (
-                          <Alert severity="info">{t('settings.mlxInfo')}</Alert>
-                        )}
-                        {provider.type === 'server' && (
-                          <Button variant="outlined" size="small" onClick={() => handleTestConnection(provider.id, 'local')} sx={{ alignSelf: 'flex-start' }}>{t('settings.testConnection')}</Button>
-                        )}
-                        {testResults[`local-${provider.id}`] && (
-                          <Alert severity={testResults[`local-${provider.id}`].success ? 'success' : 'error'}>{testResults[`local-${provider.id}`].message}</Alert>
+                        <TextField fullWidth label={t('settings.serviceName')} value={provider.name} onChange={(e) => handleUpdatePortProvider(provider.id, { name: e.target.value })} size="small" />
+                        <TextField fullWidth label={t('settings.apiEndpoint')} value={provider.endpoint} onChange={(e) => handleUpdatePortProvider(provider.id, { endpoint: e.target.value })} placeholder="http://127.0.0.1:11434 或 https://api.openai.com/v1" size="small" />
+                        <TextField fullWidth label={t('settings.apiKey')} type="password" value={provider.apiKey} onChange={(e) => handleUpdatePortProvider(provider.id, { apiKey: e.target.value })} size="small" />
+                        <Button variant="outlined" size="small" onClick={() => handleTestConnection(provider.id, 'port')} sx={{ alignSelf: 'flex-start' }}>{t('settings.testConnection')}</Button>
+                        {testResults[`port-${provider.id}`] && (
+                          <Alert severity={testResults[`port-${provider.id}`].success ? 'success' : 'error'}>{testResults[`port-${provider.id}`].message}</Alert>
                         )}
                         <Divider />
                         <Box>
                           <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                              <Typography variant="body2">{t('settings.modelList')}</Typography>
-                              {provider.type === 'mlx' && (
-                                <Typography variant="caption" color="text.secondary">
-                                  {t('settings.huggingfaceHint')}
-                                </Typography>
-                              )}
-                            </Box>
-                            <Button size="small" startIcon={<AddIcon />} onClick={() => handleAddModel(provider.id, 'local')}>{t('common.add')}</Button>
+                            <Typography variant="body2">{t('settings.modelList')}</Typography>
+                            <Button size="small" startIcon={<AddIcon />} onClick={() => handleAddPortModel(provider.id)}>{t('common.add')}</Button>
                           </Box>
                           {provider.models.length === 0 ? (
                             <Typography variant="body2" color="text.secondary">{t('settings.noModels')}</Typography>
@@ -1637,16 +1531,9 @@ export const SettingsDialog = ({ open, onClose }: SettingsDialogProps) => {
                             <Stack spacing={1}>
                               {provider.models.map((model) => (
                                 <Box key={model.id} sx={{ display: 'flex', gap: 1, alignItems: 'center', p: 1, bgcolor: 'action.hover', borderRadius: 1 }}>
-                                  <TextField
-                                    size="small"
-                                    label={t('settings.modelPath')}
-                                    value={model.modelName}
-                                    onChange={(e) => handleUpdateModel(provider.id, model.id, { modelName: e.target.value }, 'local')}
-                                    placeholder={provider.type === 'mlx' ? 'mlx-community/Llama-3.2-3B-Instruct-4bit' : 'llama3'}
-                                    sx={{ flex: 1 }}
-                                  />
-                                  <TextField size="small" label={t('settings.displayName')} value={model.displayName} onChange={(e) => handleUpdateModel(provider.id, model.id, { displayName: e.target.value }, 'local')} placeholder="Llama 3" sx={{ flex: 1 }} />
-                                  <IconButton size="small" onClick={() => handleRemoveModel(provider.id, model.id, 'local')}><DeleteIcon fontSize="small" /></IconButton>
+                                  <TextField size="small" label={t('settings.modelName')} value={model.modelName} onChange={(e) => handleUpdatePortModel(provider.id, model.id, { modelName: e.target.value })} placeholder="gpt-oss:20b" sx={{ flex: 1 }} />
+                                  <TextField size="small" label={t('settings.displayName')} value={model.displayName} onChange={(e) => handleUpdatePortModel(provider.id, model.id, { displayName: e.target.value })} placeholder="GPT-OSS 20B" sx={{ flex: 1 }} />
+                                  <IconButton size="small" onClick={() => handleRemovePortModel(provider.id, model.id)}><DeleteIcon fontSize="small" /></IconButton>
                                 </Box>
                               ))}
                             </Stack>

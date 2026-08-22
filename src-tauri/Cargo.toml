@@ -55,3 +55,4 @@ open = "5"
 # PDF 文本提取（对话上传文章附件）
 pdf-extract = "0.7"
 tauri-plugin-autostart = "2"
+tauri-plugin-single-instance = "2"

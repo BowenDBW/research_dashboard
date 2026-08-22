@@ -13,7 +13,6 @@ use serde_json::Value;
 
 // Re-export main types
 pub use types::{ChatMessage, MessageRole, ConnectionTestResult, ProviderConfig};
-pub use cloud::test_local_connection;
 #[cfg(target_os = "macos")]
 pub use mlx::test_mlx_connection;
 
@@ -36,8 +35,24 @@ pub async fn send_chat_message(
     // Find the provider for this model
     let provider_info = find_provider_for_model(&model_id, &settings)?;
 
+    // 仅两类 provider：
+    //   "mlx"  — Apple MLX 本地模型（仅 macOS，用模型路径调用）
+    //   "port" — OpenAI 兼容端口服务（Ollama / 云端 API 共用同一套 OpenAI 格式）
     let raw = match provider_info.provider_type.as_str() {
-        "cloud" => {
+        "mlx" => {
+            #[cfg(target_os = "macos")]
+            {
+                chat_with_mlx(app_handle, messages, provider_info.model_path.clone().unwrap_or_default(), None).await?
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                let _ = app_handle;
+                let _ = messages;
+                let _ = provider_info.model_path;
+                return Err("MLX 模型仅在 macOS 上可用".to_string());
+            }
+        }
+        "port" => {
             let provider = CloudLlmProvider::new(ProviderConfig {
                 id: provider_info.provider_id,
                 endpoint: provider_info.endpoint,
@@ -46,42 +61,13 @@ pub async fn send_chat_message(
             });
             provider.chat(messages).await?
         }
-        "local" => {
-            // Check if it's MLX type
-            if provider_info.local_type.as_deref() == Some("mlx") {
-                #[cfg(target_os = "macos")]
-                {
-                    chat_with_mlx(app_handle, messages, provider_info.model_path.clone().unwrap_or_default(), None).await?
-                }
-                #[cfg(not(target_os = "macos"))]
-                {
-                    let _ = app_handle;
-                    let _ = messages;
-                    let _ = provider_info.model_path;
-                    return Err("MLX 模型仅在 macOS 上可用".to_string());
-                }
-            } else {
-                // Local server (like Ollama) uses OpenAI format
-                let provider = CloudLlmProvider::new(ProviderConfig {
-                    id: provider_info.provider_id,
-                    endpoint: provider_info.endpoint,
-                    api_key: "".to_string(), // No API key for local
-                    model: provider_info.model_name,
-                });
-                provider.chat(messages).await?
-            }
-        }
         _ => return Err(format!("未知的 provider 类型: {}", provider_info.provider_type)),
     };
 
-    // 仅本地部署的模型（实测 gemma4 / gpt-oss / qwen3.5）在生成时会输出思考过程
-    // （`<|channel>`...`<channel|>`、`<|channel|>analysis<|message|>`...`<|end|>`、`Thinking Process:` 等）。
-    // 保存/展示前剥离思考，只保留正文；云端 API 不产生思考，原样返回。
-    if provider_info.provider_type == "local" {
-        Ok(strip_thinking_from_response(&raw))
-    } else {
-        Ok(raw)
-    }
+    // 本地部署的模型（实测 gemma4 / gpt-oss / qwen3.5，无论经 MLX 还是 Ollama 端口）生成时会输出
+    // 思考过程（`<|channel>`...`<channel|>`、`<|channel|>analysis<|message|>`...`<|end|>`、`Thinking Process:` 等）。
+    // 统一剥离只保留正文；无思考的普通回复（如云端 API）函数内原样返回。
+    Ok(strip_thinking_from_response(&raw))
 }
 
 /// Generate a short title for a chat session based on the first user message
@@ -255,86 +241,57 @@ fn clean_special_tokens(text: &str) -> String {
 }
 
 /// Provider information extracted from settings
+/// provider_type: "mlx"（Apple MLX 本地模型）或 "port"（OpenAI 兼容端口服务）
 struct ProviderInfo {
-
     provider_id: String,
     provider_type: String,
     endpoint: String,
     api_key: String,
     model_name: String,
-    local_type: Option<String>,
+    /// 仅 "mlx" 类型使用：MLX 模型路径（settings 中 MLX 模型的 modelName 字段存的是路径）
     model_path: Option<String>,
 }
 
 /// Find the provider configuration for a given model ID
+///
+/// 在两类配置里查找：
+/// 1. `mlxModels` — 扁平 MLX 模型列表（`modelName` 存模型路径，`displayName` 是展示名）
+/// 2. `portProviders` — OpenAI 兼容服务列表（`endpoint` + 可选 `apiKey`，`modelName` 是发给 API 的模型名）
 fn find_provider_for_model(model_id: &str, settings: &Value) -> Result<ProviderInfo, String> {
-    eprintln!("[DEBUG] Finding provider for model_id: {}", model_id);
-    eprintln!("[DEBUG] Settings cloudProviders: {}", settings["cloudProviders"]);
-    eprintln!("[DEBUG] Settings localProviders: {}", settings["localProviders"]);
-
-    // Search in cloud providers
-    if let Some(cloud_providers) = settings["cloudProviders"].as_array() {
-        for provider in cloud_providers {
-            eprintln!("[DEBUG] Checking cloud provider: id={}, endpoint={}, apiKey={}",
-                provider["id"], provider["endpoint"],
-                if provider["apiKey"].as_str().map(|s| s.len()).unwrap_or(0) > 0 { "(set)" } else { "(empty)" });
-            if let Some(models) = provider["models"].as_array() {
-                for model in models {
-                    eprintln!("[DEBUG]   model: id={}, modelName={}", model["id"], model["modelName"]);
-                    if model["id"].as_str() == Some(model_id) {
-                        return Ok(ProviderInfo {
-                            provider_id: provider["id"].as_str()
-                                .unwrap_or("unknown").to_string(),
-                            provider_type: "cloud".to_string(),
-                            endpoint: provider["endpoint"].as_str()
-                                .unwrap_or("https://api.openai.com").to_string(),
-                            api_key: provider["apiKey"].as_str()
-                                .unwrap_or("").to_string(),
-                            model_name: model["modelName"].as_str()
-                                .unwrap_or(model_id).to_string(),
-                            local_type: None,
-                            model_path: None,
-                        });
-                    }
-                }
+    // Search MLX models
+    if let Some(mlx_models) = settings["mlxModels"].as_array() {
+        for model in mlx_models {
+            if model["id"].as_str() == Some(model_id) {
+                return Ok(ProviderInfo {
+                    provider_id: "mlx".to_string(),
+                    provider_type: "mlx".to_string(),
+                    endpoint: String::new(),
+                    api_key: String::new(),
+                    model_name: model["displayName"].as_str()
+                        .unwrap_or(model_id).to_string(),
+                    model_path: model["modelName"].as_str().map(|s| s.to_string()),
+                });
             }
         }
     }
 
-    // Search in local providers
-    if let Some(local_providers) = settings["localProviders"].as_array() {
-        for provider in local_providers {
-            let local_type = provider["type"].as_str().unwrap_or("server").to_string();
-            eprintln!("[DEBUG] Checking local provider: type={}, provider={}", local_type, provider);
+    // Search port providers
+    if let Some(port_providers) = settings["portProviders"].as_array() {
+        for provider in port_providers {
             if let Some(models) = provider["models"].as_array() {
                 for model in models {
-                    eprintln!("[DEBUG] Checking model: id={}, modelName={}, modelPath={}", model["id"], model["modelName"], model["modelPath"]);
                     if model["id"].as_str() == Some(model_id) {
-                        // For MLX, modelName contains the model path
-                        // For other local servers, modelName is the actual model name
-                        let model_path = if local_type == "mlx" {
-                            model["modelName"].as_str().map(|s| s.to_string())
-                        } else {
-                            model["modelPath"].as_str().map(|s| s.to_string())
-                        };
-                        let model_name = if local_type == "mlx" {
-                            model["displayName"].as_str()
-                                .unwrap_or(model_id).to_string()
-                        } else {
-                            model["modelName"].as_str()
-                                .unwrap_or(model_id).to_string()
-                        };
-                        eprintln!("[DEBUG] Found model! model_path: {:?}", model_path);
                         return Ok(ProviderInfo {
                             provider_id: provider["id"].as_str()
                                 .unwrap_or("unknown").to_string(),
-                            provider_type: "local".to_string(),
+                            provider_type: "port".to_string(),
                             endpoint: provider["endpoint"].as_str()
                                 .unwrap_or("http://localhost:11434").to_string(),
-                            api_key: "".to_string(),
-                            model_name,
-                            local_type: Some(local_type.clone()),
-                            model_path,
+                            api_key: provider["apiKey"].as_str()
+                                .unwrap_or("").to_string(),
+                            model_name: model["modelName"].as_str()
+                                .unwrap_or(model_id).to_string(),
+                            model_path: None,
                         });
                     }
                 }
@@ -348,6 +305,7 @@ fn find_provider_for_model(model_id: &str, settings: &Value) -> Result<ProviderI
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     /// gemma4 实测输出：`<|channel>` 思考 `<channel|>` 标题
     #[test]
@@ -412,5 +370,70 @@ mod tests {
     fn strip_message_plain_noop() {
         let raw = "这是一段普通的多行回复。\n第二行。";
         assert_eq!(strip_thinking_from_response(raw), raw);
+    }
+
+    // ===== provider 解析（新结构 mlxModels + portProviders）=====
+
+    /// 用户真实场景：迁移后的 Ollama 配置在 portProviders 里，
+    /// selectedModelId "84u8p9n" 应解析为 port 类型、endpoint 指向 11434。
+    #[test]
+    fn finds_port_provider_for_model() {
+        let settings = json!({
+            "mlxModels": [],
+            "portProviders": [{
+                "id": "uijdj12",
+                "name": "Ollama",
+                "endpoint": "http://127.0.0.1:11434",
+                "apiKey": "",
+                "models": [{ "id": "84u8p9n", "modelName": "gpt-oss:20b", "displayName": "gpt-oss:20b" }]
+            }],
+            "selectedModelId": "84u8p9n"
+        });
+        let info = find_provider_for_model("84u8p9n", &settings).expect("应找到 provider");
+        assert_eq!(info.provider_type, "port");
+        assert_eq!(info.endpoint, "http://127.0.0.1:11434");
+        assert_eq!(info.api_key, "");
+        assert_eq!(info.model_name, "gpt-oss:20b");
+        assert!(info.model_path.is_none());
+    }
+
+    /// MLX 模型：扁平 mlxModels 列表，modelName 存模型路径，displayName 是展示名
+    #[test]
+    fn finds_mlx_model() {
+        let settings = json!({
+            "mlxModels": [{ "id": "m1", "modelName": "~/models/gemma-4-26b", "displayName": "Gemma4" }],
+            "portProviders": []
+        });
+        let info = find_provider_for_model("m1", &settings).expect("应找到 MLX 模型");
+        assert_eq!(info.provider_type, "mlx");
+        assert_eq!(info.model_path.as_deref(), Some("~/models/gemma-4-26b"));
+        assert_eq!(info.model_name, "Gemma4");
+    }
+
+    /// 找不到模型时返回错误
+    #[test]
+    fn missing_model_errors() {
+        let settings = json!({ "mlxModels": [], "portProviders": [] });
+        assert!(find_provider_for_model("nope", &settings).is_err());
+    }
+
+    /// 端到端实证 404 修复：真实调用本地 Ollama（OpenAI 兼容 /v1/chat/completions）。
+    /// 需要 Ollama 运行在 11434 端口且有 gpt-oss:20b 模型；默认忽略，单独用
+    /// `cargo test -- --ignored real_ollama_chat_works` 运行。
+    #[tokio::test]
+    #[ignore]
+    async fn real_ollama_chat_works() {
+        let provider = CloudLlmProvider::new(ProviderConfig {
+            id: "uijdj12".to_string(),
+            endpoint: "http://127.0.0.1:11434".to_string(),
+            api_key: String::new(),
+            model: "gpt-oss:20b".to_string(),
+        });
+        let messages = vec![ChatMessage {
+            role: MessageRole::User,
+            content: "用一句话回复：你好".to_string(),
+        }];
+        let reply = provider.chat(messages).await.expect("调用 Ollama 失败");
+        assert!(!reply.trim().is_empty(), "Ollama 回复为空");
     }
 }

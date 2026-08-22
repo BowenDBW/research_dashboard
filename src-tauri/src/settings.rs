@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::llm::{ConnectionTestResult, test_local_connection};
+use crate::llm::ConnectionTestResult;
 use crate::llm::cloud::CloudLlmProvider;
 use crate::AppState;
 
@@ -103,8 +103,9 @@ fn get_default_settings() -> Value {
         "autoLaunch": false,
         // 点 X 关闭窗口时的行为: "exit" 直接退出 / "minimize" 最小化到托盘 / null 每次询问
         "closeBehavior": null,
-        "cloudProviders": [],
-        "localProviders": [],
+        // LLM 两类配置：mlxModels（Apple MLX 本地模型）+ portProviders（OpenAI 兼容端口服务，Ollama / 云端 API 通用）
+        "mlxModels": [],
+        "portProviders": [],
         "selectedModelId": null,
         "statsCardConfig": {
             "cards": [
@@ -130,6 +131,60 @@ fn get_default_settings() -> Value {
     })
 }
 
+/// 把旧版 LLM provider 结构迁移到新结构。
+///
+/// 旧版（v0.1.x）：`cloudProviders` + `localProviders`（local 含 `type: "mlx" | "server"`）
+/// 新版：`portProviders`（OpenAI 兼容服务，承接原 cloud 与 local/server）+ `mlxModels`（扁平 MLX 模型列表）。
+/// 返回是否发生了迁移（用于决定是否回写磁盘）。幂等：已存在 `portProviders` 时直接返回 false。
+fn migrate_legacy_providers(json: &mut Value) -> bool {
+    let obj = match json.as_object_mut() {
+        Some(o) => o,
+        None => return false,
+    };
+    if obj.contains_key("portProviders") {
+        return false; // 已是新结构
+    }
+
+    let mut port_providers: Vec<Value> = Vec::new();
+    let mut mlx_models: Vec<Value> = Vec::new();
+
+    // 旧 cloudProviders → portProviders（保留 id/name/endpoint/apiKey/models）
+    if let Some(arr) = obj.get("cloudProviders").and_then(|v| v.as_array()) {
+        for p in arr {
+            let mut provider = p.clone();
+            provider.as_object_mut().map(|m| m.remove("type"));
+            port_providers.push(provider);
+        }
+    }
+
+    // 旧 localProviders → type "mlx" 的模型进 mlxModels；其余（server）进 portProviders
+    if let Some(arr) = obj.get("localProviders").and_then(|v| v.as_array()) {
+        for p in arr {
+            let t = p["type"].as_str().unwrap_or("server");
+            if t == "mlx" {
+                if let Some(models) = p["models"].as_array() {
+                    for m in models {
+                        mlx_models.push(m.clone());
+                    }
+                }
+            } else {
+                let mut provider = p.clone();
+                if let Some(m) = provider.as_object_mut() {
+                    m.remove("type");
+                    m.entry("apiKey").or_insert(Value::String(String::new()));
+                }
+                port_providers.push(provider);
+            }
+        }
+    }
+
+    obj.insert("portProviders".into(), Value::Array(port_providers));
+    obj.insert("mlxModels".into(), Value::Array(mlx_models));
+    obj.remove("cloudProviders");
+    obj.remove("localProviders");
+    true
+}
+
 /// Ensure settings file exists, return settings content with defaults merged
 pub fn ensure_settings() -> Result<Value, String> {
     let settings_path = get_settings_path()?;
@@ -139,6 +194,9 @@ pub fn ensure_settings() -> Result<Value, String> {
             .map_err(|e| format!("读取设置文件失败: {}", e))?;
         let mut json: Value = serde_json::from_str(&content)
             .map_err(|e| format!("解析设置JSON失败: {}", e))?;
+
+        // 迁移旧版 LLM provider 结构（cloudProviders/localProviders → portProviders/mlxModels）
+        let migrated = migrate_legacy_providers(&mut json);
 
         // Merge with defaults for any missing fields
         let default = get_default_settings();
@@ -150,6 +208,11 @@ pub fn ensure_settings() -> Result<Value, String> {
             }
         }
 
+        // 迁移改变了结构时回写一次，避免旧字段（cloudProviders/localProviders）残留在磁盘上
+        if migrated {
+            let _ = write_settings_to_disk(json.clone());
+        }
+
         Ok(json)
     } else {
         let default = get_default_settings();
@@ -158,6 +221,81 @@ pub fn ensure_settings() -> Result<Value, String> {
         fs::write(&settings_path, content)
             .map_err(|e| format!("写入设置文件失败: {}", e))?;
         Ok(default)
+    }
+}
+
+#[cfg(test)]
+mod migration_tests {
+    use super::migrate_legacy_providers;
+    use serde_json::json;
+
+    /// 用真实用户场景验证迁移：cloudProviders 里的 Ollama 服务 →
+    /// portProviders，selectedModelId 与模型 id 保持不变。
+    #[test]
+    fn migrates_ollama_cloud_provider() {
+        let mut legacy = json!({
+            "cloudProviders": [{
+                "apiKey": "",
+                "endpoint": "http://127.0.0.1:11434",
+                "id": "uijdj12",
+                "models": [{ "displayName": "gpt-oss:20b", "id": "84u8p9n", "modelName": "gpt-oss:20b" }],
+                "name": "Ollama"
+            }],
+            "localProviders": [],
+            "selectedModelId": "84u8p9n"
+        });
+
+        let migrated = migrate_legacy_providers(&mut legacy);
+        assert!(migrated, "应当发生迁移");
+        assert!(legacy.get("cloudProviders").is_none(), "旧字段应被移除");
+        assert!(legacy.get("localProviders").is_none(), "旧字段应被移除");
+        assert_eq!(legacy["selectedModelId"], "84u8p9n");
+
+        let port = legacy["portProviders"][0].clone();
+        assert_eq!(port["id"], "uijdj12");
+        assert_eq!(port["name"], "Ollama");
+        assert_eq!(port["endpoint"], "http://127.0.0.1:11434");
+        assert_eq!(port["models"][0]["id"], "84u8p9n");
+        assert_eq!(port["models"][0]["modelName"], "gpt-oss:20b");
+        assert!(legacy["mlxModels"].as_array().unwrap().is_empty());
+    }
+
+    /// 旧 localProviders 拆分：type=mlx → mlxModels；type=server → portProviders
+    #[test]
+    fn migrates_local_providers_split() {
+        let mut legacy = json!({
+            "cloudProviders": [],
+            "localProviders": [
+                {
+                    "id": "mlx1",
+                    "name": "MLX",
+                    "type": "mlx",
+                    "endpoint": "",
+                    "models": [{ "id": "m1", "modelName": "~/models/gemma-4-26b", "displayName": "Gemma4" }]
+                },
+                {
+                    "id": "srv1",
+                    "name": "LocalServer",
+                    "type": "server",
+                    "endpoint": "http://localhost:11434",
+                    "models": [{ "id": "m2", "modelName": "llama3", "displayName": "Llama3" }]
+                }
+            ]
+        });
+
+        assert!(migrate_legacy_providers(&mut legacy));
+        assert_eq!(legacy["mlxModels"][0]["id"], "m1");
+        assert_eq!(legacy["mlxModels"][0]["modelName"], "~/models/gemma-4-26b");
+        assert_eq!(legacy["portProviders"][0]["id"], "srv1");
+        assert_eq!(legacy["portProviders"][0]["apiKey"], "");
+        assert_eq!(legacy["portProviders"][0].get("type"), None);
+    }
+
+    /// 已是新结构：幂等，不迁移
+    #[test]
+    fn idempotent_when_already_migrated() {
+        let mut fresh = json!({ "portProviders": [], "mlxModels": [] });
+        assert!(!migrate_legacy_providers(&mut fresh));
     }
 }
 
@@ -251,9 +389,9 @@ pub fn save_close_behavior(behavior: &str) {
 #[tauri::command]
 pub async fn test_connection(provider_id: String, provider_type: String, settings: Value) -> Result<ConnectionTestResult, String> {
     match provider_type.as_str() {
-        "cloud" => {
-            let providers = settings["cloudProviders"].as_array()
-                .ok_or("cloudProviders 配置无效")?;
+        "port" => {
+            let providers = settings["portProviders"].as_array()
+                .ok_or("portProviders 配置无效")?;
             let provider = providers.iter()
                 .find(|p| p["id"] == provider_id)
                 .ok_or("找不到 Provider")?;
@@ -261,21 +399,16 @@ pub async fn test_connection(provider_id: String, provider_type: String, setting
             let endpoint = provider["endpoint"].as_str()
                 .ok_or("endpoint 配置无效")?.to_string();
             let api_key = provider["apiKey"].as_str()
-                .ok_or("apiKey 配置无效")?.to_string();
+                .unwrap_or("").to_string();
 
             CloudLlmProvider::test_connection(&endpoint, &api_key).await
         }
-        "local" => {
-            let providers = settings["localProviders"].as_array()
-                .ok_or("localProviders 配置无效")?;
-            let provider = providers.iter()
-                .find(|p| p["id"] == provider_id)
-                .ok_or("找不到 Provider")?;
-
-            let endpoint = provider["endpoint"].as_str()
-                .ok_or("endpoint 配置无效")?.to_string();
-
-            test_local_connection(&endpoint).await
+        "mlx" => {
+            // MLX 无 endpoint 可测；本地模型配置本身即视为有效
+            Ok(ConnectionTestResult {
+                success: true,
+                message: "MLX 模型无需测试连接".to_string(),
+            })
         }
         _ => Err("无效的 provider 类型".to_string()),
     }

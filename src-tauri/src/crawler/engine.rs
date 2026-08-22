@@ -79,7 +79,21 @@ impl CrawlerEngine {
 
         // Get last run time from settings (full timestamp or legacy date)
         let last_run = get_last_crawl_date().and_then(|s| parse_last_crawl_time(&s));
-        let utc_plus_8 = Utc::now() + Duration::hours(8);
+        // 健壮性：lastCrawlTime 若异常超前于当前时间（时钟回拨 / 历史脏数据），视为从未爬取过。
+        // 否则下方 5 分钟反重复保护会因 elapsed 被 max(0) 截成 0 而永久拦截手动爬取，
+        // 且爬取阈值变成未来日期导致所有文章被判为"旧"——表现为点"立即爬取"一闪而过毫无进展。
+        let last_run = match last_run {
+            Some(t) if t > Utc::now() => {
+                println!("[爬虫] lastCrawlTime 异常超前（{}），按首次运行处理", t);
+                None
+            }
+            other => other,
+        };
+        // now_utc 用于写入 lastCrawlTime；utc_plus_8 仅用于计算 UTC+8 的日期阈值。
+        // 切勿把 now_utc + 8h 再传给 update_last_crawl_time——它在内部还会
+        // with_timezone(+08) 转一次时区，结果会比真实时间超前 8 小时（上次爬取时间越写越远）。
+        let now_utc = Utc::now();
+        let utc_plus_8 = now_utc + Duration::hours(8);
 
         // 反重复保护：上次爬取在 5 分钟内则跳过，防止手动+定时同时触发。
         // 爬取频率由调度器按 crawlIntervalHours 控制，不再限定"一天一次"。
@@ -123,7 +137,7 @@ impl CrawlerEngine {
         }
 
         // Update last run time (full UTC+8 timestamp)
-        update_last_crawl_time(&utc_plus_8)?;
+        update_last_crawl_time(&now_utc)?;
 
         Ok(CrawlResult {
             articles_saved: total_saved,
@@ -491,4 +505,22 @@ fn update_last_crawl_time(utc8: &DateTime<Utc>) -> Result<(), String> {
     }
     write_settings_to_disk(settings)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod time_tests {
+    use chrono::{DateTime, FixedOffset, Utc};
+
+    /// 回归测试：update_last_crawl_time 的核心格式化（Utc 时刻 + with_timezone(+08)）
+    /// 写入的时间必须等于真实当前时刻（±2 秒），否则会出现"上次爬取时间超前 8 小时"。
+    /// 不依赖系统时区。
+    #[test]
+    fn last_crawl_time_writes_current_moment() {
+        let tz8 = FixedOffset::east_opt(8 * 3600).unwrap();
+        let before = Utc::now();
+        let s = before.with_timezone(&tz8).format("%Y-%m-%dT%H:%M:%S%:z").to_string();
+        let parsed = DateTime::parse_from_rfc3339(&s).unwrap().with_timezone(&Utc);
+        let diff_secs = (parsed - before).num_seconds().abs();
+        assert!(diff_secs < 2, "写入时间偏离真实时间 {} 秒", diff_secs);
+    }
 }

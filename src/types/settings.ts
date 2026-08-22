@@ -2,27 +2,17 @@ import { GmailConfig } from './gmail';
 
 export interface ModelConfig {
   id: string;           // Unique identifier
-  modelName: string;    // Internal model name (e.g., "gpt-4o", "claude-3-opus")
+  modelName: string;    // 端口服务：发给 OpenAI 兼容 API 的模型名（如 "gpt-4o"）；MLX：模型路径
   displayName: string;  // User-facing display name (must be unique)
-  modelPath?: string;   // Model path for MLX models (e.g., "~/models/gemma-4-26b-a4b-it-4bit")
 }
 
-export interface CloudProviderConfig {
+// OpenAI 兼容端口服务（Ollama / 云端 API 通用，不区分本地或云端）
+export interface PortProviderConfig {
   id: string;           // Unique identifier
-  name: string;         // Provider name (e.g., "OpenAI", "Anthropic")
-  endpoint: string;     // API endpoint URL
-  apiKey: string;       // API key
-  models: ModelConfig[]; // List of models for this provider
-}
-
-export type LocalProviderType = 'server' | 'mlx';
-
-export interface LocalProviderConfig {
-  id: string;           // Unique identifier
-  name: string;         // Provider name (e.g., "Ollama", "MLX")
-  type: LocalProviderType;  // 'server' for Ollama-style, 'mlx' for Apple MLX
-  endpoint: string;     // Local server endpoint (e.g., "http://localhost:11434") - empty for MLX
-  models: ModelConfig[]; // List of models available locally
+  name: string;         // Service name (e.g., "Ollama", "DeepSeek")
+  endpoint: string;     // Base URL，例如 "http://127.0.0.1:11434" 或 "https://api.openai.com/v1"
+  apiKey: string;       // API key（Ollama 等本地服务可留空）
+  models: ModelConfig[]; // List of models for this service
 }
 
 // Stats card types with time range
@@ -52,9 +42,9 @@ export interface AppSettings {
   autoLaunch: boolean;
   // 点 X 关闭窗口时的行为: 'exit' 直接退出 / 'minimize' 最小化到托盘 / null 每次询问
   closeBehavior?: 'exit' | 'minimize' | null;
-  // Cloud and local providers - both can be configured simultaneously
-  cloudProviders: CloudProviderConfig[];
-  localProviders: LocalProviderConfig[];
+  // LLM 两类配置：MLX 本地模型 + OpenAI 兼容端口服务（Ollama / 云端 API 通用）
+  mlxModels: ModelConfig[];           // Apple MLX 模型列表（modelName 存模型路径）
+  portProviders: PortProviderConfig[]; // OpenAI 兼容端口服务
   // Currently selected model
   selectedModelId: string | null;
   // Stats card configuration

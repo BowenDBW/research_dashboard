@@ -1,21 +1,21 @@
 import { create } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, UnlistenFn } from '@tauri-apps/api/event';
-import { AppSettings, ConnectionTestResult, CloudProviderConfig, LocalProviderConfig, StatsCardConfig } from '../types';
+import { AppSettings, ConnectionTestResult, PortProviderConfig, ModelConfig, StatsCardConfig } from '../types';
 
 interface SettingsStore {
   settings: AppSettings;
   loading: boolean;
   loadSettings: () => Promise<void>;
   updateSettings: (partial: Partial<AppSettings>) => Promise<void>;
-  addCloudProvider: (provider: CloudProviderConfig) => Promise<void>;
-  updateCloudProvider: (id: string, provider: Partial<CloudProviderConfig>) => Promise<void>;
-  removeCloudProvider: (id: string) => Promise<void>;
-  addLocalProvider: (provider: LocalProviderConfig) => Promise<void>;
-  updateLocalProvider: (id: string, provider: Partial<LocalProviderConfig>) => Promise<void>;
-  removeLocalProvider: (id: string) => Promise<void>;
+  addPortProvider: (provider: PortProviderConfig) => Promise<void>;
+  updatePortProvider: (id: string, provider: Partial<PortProviderConfig>) => Promise<void>;
+  removePortProvider: (id: string) => Promise<void>;
+  addMlxModel: (model: ModelConfig) => Promise<void>;
+  updateMlxModel: (id: string, model: Partial<ModelConfig>) => Promise<void>;
+  removeMlxModel: (id: string) => Promise<void>;
   setSelectedModel: (modelId: string | null) => Promise<void>;
-  testConnection: (providerId: string, type: 'cloud' | 'local') => Promise<ConnectionTestResult>;
+  testConnection: (providerId: string, type: 'mlx' | 'port') => Promise<ConnectionTestResult>;
   updateStatsCardConfig: (config: StatsCardConfig) => Promise<void>;
 }
 
@@ -40,8 +40,8 @@ const emptyState: AppSettings = {
   pdfStoragePath: '',
   autoLaunch: false,
   closeBehavior: null,
-  cloudProviders: [],
-  localProviders: [],
+  mlxModels: [],
+  portProviders: [],
   selectedModelId: null,
   statsCardConfig: DEFAULT_STATS_CARD_CONFIG,
 };
@@ -75,22 +75,22 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     }
   },
 
-  addCloudProvider: async (provider) => {
+  addPortProvider: async (provider) => {
     set((state) => {
       const newSettings = {
         ...state.settings,
-        cloudProviders: [...state.settings.cloudProviders, provider],
+        portProviders: [...state.settings.portProviders, provider],
       };
       invoke('save_settings', { settings: newSettings }).catch(console.error);
       return { settings: newSettings };
     });
   },
 
-  updateCloudProvider: async (id, provider) => {
+  updatePortProvider: async (id, provider) => {
     set((state) => {
       const newSettings = {
         ...state.settings,
-        cloudProviders: state.settings.cloudProviders.map((p) =>
+        portProviders: state.settings.portProviders.map((p) =>
           p.id === id ? { ...p, ...provider } : p
         ),
       };
@@ -99,34 +99,34 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     });
   },
 
-  removeCloudProvider: async (id) => {
+  removePortProvider: async (id) => {
     set((state) => {
       const newSettings = {
         ...state.settings,
-        cloudProviders: state.settings.cloudProviders.filter((p) => p.id !== id),
+        portProviders: state.settings.portProviders.filter((p) => p.id !== id),
       };
       invoke('save_settings', { settings: newSettings }).catch(console.error);
       return { settings: newSettings };
     });
   },
 
-  addLocalProvider: async (provider) => {
+  addMlxModel: async (model) => {
     set((state) => {
       const newSettings = {
         ...state.settings,
-        localProviders: [...state.settings.localProviders, provider],
+        mlxModels: [...state.settings.mlxModels, model],
       };
       invoke('save_settings', { settings: newSettings }).catch(console.error);
       return { settings: newSettings };
     });
   },
 
-  updateLocalProvider: async (id, provider) => {
+  updateMlxModel: async (id, model) => {
     set((state) => {
       const newSettings = {
         ...state.settings,
-        localProviders: state.settings.localProviders.map((p) =>
-          p.id === id ? { ...p, ...provider } : p
+        mlxModels: state.settings.mlxModels.map((m) =>
+          m.id === id ? { ...m, ...model } : m
         ),
       };
       invoke('save_settings', { settings: newSettings }).catch(console.error);
@@ -134,11 +134,11 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     });
   },
 
-  removeLocalProvider: async (id) => {
+  removeMlxModel: async (id) => {
     set((state) => {
       const newSettings = {
         ...state.settings,
-        localProviders: state.settings.localProviders.filter((p) => p.id !== id),
+        mlxModels: state.settings.mlxModels.filter((m) => m.id !== id),
       };
       invoke('save_settings', { settings: newSettings }).catch(console.error);
       return { settings: newSettings };
@@ -195,4 +195,3 @@ export async function initSettingsEventListeners() {
     useSettingsStore.getState().loadSettings();
   });
 }
-

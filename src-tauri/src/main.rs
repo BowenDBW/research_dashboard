@@ -63,6 +63,11 @@ fn run() {
     let state = Arc::new(AppState { db_pool, crawler, gmail });
 
     tauri::Builder::default()
+        // 单实例：已有实例运行时再次启动，聚焦已有窗口而不是新开进程。
+        // 必须在其他插件之前注册才能拦截第二个实例的初始化。
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            show_main_window(app);
+        }))
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
