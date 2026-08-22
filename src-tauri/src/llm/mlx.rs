@@ -50,7 +50,9 @@ pub async fn chat_with_mlx(
     // Debug: print actual search path
     if let Ok(exe_path) = std::env::current_exe() {
         let exe_dir = exe_path.parent().unwrap_or(&exe_path);
-        let search_path = exe_dir.join(&full_binary_name);
+        // externalBin strips the target-triple suffix when bundling, so the
+        // shipped sidecar sits next to the main binary as `mlx-chat-service`
+        let search_path = exe_dir.join(binary_name);
         eprintln!("[DEBUG] exe_path: {}", exe_path.display());
         eprintln!("[DEBUG] sidecar_name: {}", full_binary_name);
         eprintln!("[DEBUG] search_path: {}", search_path.display());
@@ -150,18 +152,12 @@ pub fn is_mlx_available() -> bool {
         return true;
     }
 
-    // Check relative to current exe (for production)
+    // Check next to the current exe (production): externalBin places the
+    // sidecar in the same directory as the main binary with the target-triple
+    // suffix stripped (e.g. Contents/MacOS/mlx-chat-service)
     if let Ok(exe_path) = std::env::current_exe() {
         if let Some(exe_dir) = exe_path.parent() {
-            // Check in the app's resource directory
-            let prod_path = exe_dir.join("binaries").join(&binary_filename);
-            if prod_path.exists() {
-                return true;
-            }
-
-            // Also check in common macOS app bundle structure
-            let macos_path = exe_dir.join("../Resources/binaries").join(&binary_filename);
-            if macos_path.exists() {
+            if exe_dir.join(get_mlx_binary_name()).exists() {
                 return true;
             }
         }
