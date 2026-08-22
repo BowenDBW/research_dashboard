@@ -49,6 +49,8 @@ export interface AppSettings {
   lastCrawlTime?: string; // Add last crawl time
   pdfStoragePath: string; // Path for storing downloaded PDFs
   autoLaunch: boolean;
+  // 点 X 关闭窗口时的行为: 'exit' 直接退出 / 'minimize' 最小化到托盘 / null 每次询问
+  closeBehavior?: 'exit' | 'minimize' | null;
   // Cloud and local providers - both can be configured simultaneously
   cloudProviders: CloudProviderConfig[];
   localProviders: LocalProviderConfig[];

@@ -87,6 +87,8 @@ fn get_default_settings() -> Value {
         "lastCrawlTime": null,
         "pdfStoragePath": "",
         "autoLaunch": false,
+        // 点 X 关闭窗口时的行为: "exit" 直接退出 / "minimize" 最小化到托盘 / null 每次询问
+        "closeBehavior": null,
         "cloudProviders": [],
         "localProviders": [],
         "selectedModelId": null,
@@ -154,14 +156,82 @@ pub fn get_settings() -> Result<Value, String> {
     ensure_settings()
 }
 
-#[tauri::command]
-pub fn save_settings(settings: Value) -> Result<(), String> {
+/// 将完整设置写入磁盘文件（纯文件操作，供内部各模块使用）
+pub fn write_settings_to_disk(settings: Value) -> Result<(), String> {
     let settings_path = get_settings_path()?;
     let content = serde_json::to_string_pretty(&settings)
         .map_err(|e| format!("序列化设置失败: {}", e))?;
     fs::write(&settings_path, content)
         .map_err(|e| format!("写入设置文件失败: {}", e))?;
     Ok(())
+}
+
+/// 保存设置；当 autoLaunch 发生变化时同步系统开机自启动状态（Windows/Linux）
+#[tauri::command]
+pub fn save_settings(app: tauri::AppHandle, settings: Value) -> Result<(), String> {
+    let old_auto = ensure_settings()?["autoLaunch"].as_bool().unwrap_or(false);
+    let new_auto = settings["autoLaunch"].as_bool().unwrap_or(false);
+
+    write_settings_to_disk(settings)?;
+
+    if old_auto != new_auto {
+        sync_autostart(&app, new_auto);
+    }
+    Ok(())
+}
+
+// ==========================================
+// 开机自启动 (autoLaunch)
+// ==========================================
+
+/// 同步系统开机自启动状态。
+/// 通过 tauri-plugin-autostart 在三个平台生效：
+/// - Windows: 注册表 HKCU\...\Run
+/// - Linux: XDG autostart (~/.config/autostart/*.desktop)
+/// - macOS: LaunchAgent (~/Library/LaunchAgents/*.plist)
+pub fn sync_autostart(app: &tauri::AppHandle, enabled: bool) {
+    use tauri_plugin_autostart::ManagerExt;
+    if enabled {
+        let _ = app.autolaunch().enable();
+    } else {
+        let _ = app.autolaunch().disable();
+    }
+}
+
+// ==========================================
+// 关闭窗口行为 (closeBehavior)
+// ==========================================
+
+/// 点 X 关闭窗口时的行为
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CloseBehavior {
+    /// 直接退出应用
+    Exit,
+    /// 最小化到系统托盘（应用保活）
+    Minimize,
+    /// 每次关闭时询问用户
+    Ask,
+}
+
+/// 从配置文件读取关闭行为。
+/// 配置文件未设置（字段缺失或值为 null，含自动生成默认值）时返回 Ask —— 即询问用户。
+pub fn get_close_behavior() -> CloseBehavior {
+    let settings = ensure_settings().unwrap_or_default();
+    match settings["closeBehavior"].as_str() {
+        Some("exit") => CloseBehavior::Exit,
+        Some("minimize") => CloseBehavior::Minimize,
+        _ => CloseBehavior::Ask,
+    }
+}
+
+/// 将用户的选择写入配置文件（记住选择），下次关闭时直接执行不再询问。
+pub fn save_close_behavior(behavior: &str) {
+    if let Ok(mut settings) = ensure_settings() {
+        if let Some(obj) = settings.as_object_mut() {
+            obj.insert("closeBehavior".to_string(), Value::String(behavior.to_string()));
+        }
+        let _ = write_settings_to_disk(settings);
+    }
 }
 
 #[tauri::command]
@@ -488,7 +558,7 @@ pub fn change_pdf_storage_path(state: tauri::State<'_, std::sync::Arc<AppState>>
     if let Some(obj) = settings.as_object_mut() {
         obj.insert("pdfStoragePath".to_string(), Value::String(new_path));
     }
-    save_settings(settings)?;
+    write_settings_to_disk(settings)?;
 
     Ok(())
 }

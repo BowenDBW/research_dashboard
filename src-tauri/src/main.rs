@@ -19,7 +19,8 @@ use dao::{DbPool, ensure_database};
 use controller::*;
 use crawler::{CrawlerHandle, crawler_start, crawler_status, crawler_stop, start_crawl_scheduler};
 use settings::{get_settings, save_settings, test_connection, copy_pdf_to_storage, get_pdf_dir, ensure_settings, ensure_pdfs_dir,
-    get_disk_usage, get_storage_stats, cleanup_chat_history, cleanup_reading_history, cleanup_articles_and_pdfs, change_pdf_storage_path};
+    get_disk_usage, get_storage_stats, cleanup_chat_history, cleanup_reading_history, cleanup_articles_and_pdfs, change_pdf_storage_path,
+    get_close_behavior, save_close_behavior, sync_autostart, CloseBehavior};
 use layout::{get_layout_config, save_layout_config};
 use service::data_transfer::{export_database, import_database};
 use gmail::{
@@ -27,6 +28,12 @@ use gmail::{
     gmail_sync_status, gmail_sync_stop,
     start_gmail_scheduler,
 };
+
+// 托盘、窗口关闭事件与对话框
+use tauri::menu::{Menu, MenuItem};
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+use tauri::{Emitter, Manager, WindowEvent};
+use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind, MessageDialogResult};
 
 // Application state
 pub struct AppState {
@@ -61,13 +68,31 @@ fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None,
+        ))
         .setup(|app| {
             let app_handle = app.handle().clone();
+            // 创建系统托盘图标（始终显示，用于最小化到托盘后恢复窗口 / 退出应用）
+            setup_tray(app)?;
+            // 开机自启动状态同步（三平台生效）：保证 settings.json 的
+            // autoLaunch 与系统实际自启动状态一致（防止用户手动改动或设置未生效）
+            if let Ok(settings) = settings::ensure_settings() {
+                let auto = settings["autoLaunch"].as_bool().unwrap_or(false);
+                settings::sync_autostart(app.handle(), auto);
+            }
             // Start the scheduled crawler background task
             start_crawl_scheduler(scheduler_db_pool, scheduler_crawler, app_handle.clone());
             // Start the Gmail scheduler background task
             start_gmail_scheduler(gmail_scheduler_db_pool, gmail_scheduler_handle);
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            // 拦截窗口关闭请求，根据 closeBehavior 决定退出 / 最小化到托盘 / 询问
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                handle_close_request(window, api);
+            }
         })
         .manage(state)
         .invoke_handler(tauri::generate_handler![
@@ -161,6 +186,97 @@ fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+/// 创建系统托盘图标与菜单。
+/// 托盘始终显示：窗口最小化到托盘后可点击托盘恢复；菜单提供"显示主窗口 / 退出"。
+fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
+    let show = MenuItem::with_id(app, "tray-show", "显示主窗口", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "tray-quit", "退出", true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&show, &quit])?;
+
+    let mut tray_builder = TrayIconBuilder::with_id("main-tray")
+        .tooltip("Research Dashboard")
+        .menu(&menu)
+        .show_menu_on_left_click(false);
+    if let Some(icon) = app.default_window_icon() {
+        tray_builder = tray_builder.icon(icon.clone());
+    }
+    let _tray = tray_builder
+        .on_menu_event(|app, event| match event.id.as_ref() {
+            "tray-show" => show_main_window(app),
+            "tray-quit" => app.exit(0),
+            _ => {}
+        })
+        .on_tray_icon_event(|tray, event| {
+            // 左键单击托盘图标：显示主窗口
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
+                show_main_window(tray.app_handle());
+            }
+        })
+        .build(app)?;
+
+    Ok(())
+}
+
+/// 显示主窗口并聚焦
+fn show_main_window(app: &tauri::AppHandle) {
+    if let Some(win) = app.get_webview_window("main") {
+        let _ = win.show();
+        let _ = win.set_focus();
+    }
+}
+
+/// 处理窗口关闭请求（点 X）：
+/// - closeBehavior = exit：显式退出（macOS 上关闭窗口不会退出进程，需显式 exit）
+/// - closeBehavior = minimize：隐藏窗口，应用保活（可经托盘恢复）
+/// - closeBehavior 未设置（null/缺失）：弹框询问，选择后记住到配置
+fn handle_close_request(window: &tauri::Window, api: &tauri::CloseRequestApi) {
+    let app = window.app_handle().clone();
+    match get_close_behavior() {
+        CloseBehavior::Exit => {
+            api.prevent_close();
+            app.exit(0);
+        }
+        CloseBehavior::Minimize => {
+            api.prevent_close();
+            let _ = window.hide();
+        }
+        CloseBehavior::Ask => {
+            api.prevent_close();
+            let win = window.clone();
+            app.dialog()
+                .message("关闭窗口时要退出应用，还是最小化到系统托盘继续后台运行？")
+                .title("关闭行为")
+                .kind(MessageDialogKind::Info)
+                .buttons(MessageDialogButtons::YesNoCancelCustom(
+                    "退出".into(),
+                    "最小化到托盘".into(),
+                    "取消".into(),
+                ))
+                .show_with_result(move |result| match result {
+                    // 注意：YesNoCancelCustom 在三个平台返回的都是 Custom(按钮文本)，
+                    // 这里按按钮文本区分，而非 Yes/No 变体。
+                    MessageDialogResult::Custom(text) if text == "退出" => {
+                        // 用户选择后记住该行为，下次点 X 直接执行不再询问
+                        save_close_behavior("exit");
+                        app.exit(0);
+                    }
+                    MessageDialogResult::Custom(text) if text == "最小化到托盘" => {
+                        save_close_behavior("minimize");
+                        // 通知前端刷新设置，避免前端 store 中的旧值在打开设置界面时覆盖磁盘上的新值
+                        let _ = app.emit("settings-changed", ());
+                        let _ = win.hide();
+                    }
+                    _ => {} // 取消：保持窗口打开
+                });
+        }
+    }
 }
 
 fn main() {

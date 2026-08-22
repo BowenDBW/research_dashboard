@@ -572,6 +572,22 @@ const SettingsPage = () => {
             }
             label="开机自启动"
           />
+          <Box sx={{ mt: 2 }}>
+            <Typography variant="subtitle2" gutterBottom>关闭窗口时</Typography>
+            <RadioGroup
+              value={localSettings.closeBehavior ?? 'ask'}
+              onChange={(e) =>
+                setLocalSettings({
+                  ...localSettings,
+                  closeBehavior: e.target.value === 'ask' ? null : (e.target.value as 'exit' | 'minimize'),
+                })
+              }
+            >
+              <FormControlLabel value="exit" control={<Radio />} label="退出应用" />
+              <FormControlLabel value="minimize" control={<Radio />} label="最小化到系统托盘" />
+              <FormControlLabel value="ask" control={<Radio />} label="每次询问" />
+            </RadioGroup>
+          </Box>
         </Paper>
 
         {/* LLM Settings */}

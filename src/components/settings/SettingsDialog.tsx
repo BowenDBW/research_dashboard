@@ -1204,6 +1204,22 @@ export const SettingsDialog = ({ open, onClose }: SettingsDialogProps) => {
             }
             label={t('settings.autoLaunch')}
           />
+          <Box sx={{ mt: 1.5 }}>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>{t('settings.closeBehavior')}</Typography>
+            <RadioGroup
+              value={localSettings.closeBehavior ?? 'ask'}
+              onChange={(e) =>
+                setLocalSettings({
+                  ...localSettings,
+                  closeBehavior: e.target.value === 'ask' ? null : (e.target.value as 'exit' | 'minimize'),
+                })
+              }
+            >
+              <FormControlLabel value="exit" control={<Radio size="small" />} label={t('settings.closeExit')} />
+              <FormControlLabel value="minimize" control={<Radio size="small" />} label={t('settings.closeMinimize')} />
+              <FormControlLabel value="ask" control={<Radio size="small" />} label={t('settings.closeAsk')} />
+            </RadioGroup>
+          </Box>
         </Box>
 
         <Divider sx={{ my: 2 }} />

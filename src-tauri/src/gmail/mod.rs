@@ -374,7 +374,7 @@ async fn run_sync(
                 }
             }
         }
-        let _ = crate::settings::save_settings(settings);
+        let _ = crate::settings::write_settings_to_disk(settings);
     }
 
     Ok((total, processed, total_articles))
@@ -426,7 +426,7 @@ fn persist_authorized_email(email: &str) {
                 }
             }
         }
-        let _ = crate::settings::save_settings(settings);
+        let _ = crate::settings::write_settings_to_disk(settings);
     }
 }
 

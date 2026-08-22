@@ -9,7 +9,7 @@ edition = "2021"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["protocol-asset"] }
+tauri = { version = "2", features = ["protocol-asset", "tray-icon"] }
 tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -54,3 +54,4 @@ open = "5"
 
 # PDF 文本提取（对话上传文章附件）
 pdf-extract = "0.7"
+tauri-plugin-autostart = "2"

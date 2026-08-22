@@ -11,7 +11,7 @@ use crate::dao::{DbConnection, DbPool};
 use crate::dao::papers::{insert_paper, paper_exists_by_preprint};
 use crate::dao::subscriptions::get_all_subscriptions;
 use crate::models::Paper;
-use crate::settings::{ensure_settings, save_settings};
+use crate::settings::{ensure_settings, write_settings_to_disk};
 use rusqlite::params;
 
 /// Result of a single crawl run
@@ -489,6 +489,6 @@ fn update_last_crawl_time(utc8: &DateTime<Utc>) -> Result<(), String> {
         let s = utc8.with_timezone(&tz8).format("%Y-%m-%dT%H:%M:%S%:z").to_string();
         obj.insert("lastCrawlTime".to_string(), serde_json::Value::String(s));
     }
-    save_settings(settings)?;
+    write_settings_to_disk(settings)?;
     Ok(())
 }

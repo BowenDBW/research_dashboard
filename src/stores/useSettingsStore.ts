@@ -39,6 +39,7 @@ const emptyState: AppSettings = {
   lastCrawlTime: undefined,
   pdfStoragePath: '',
   autoLaunch: false,
+  closeBehavior: null,
   cloudProviders: [],
   localProviders: [],
   selectedModelId: null,
@@ -176,13 +177,21 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
   },
 }));
 
-// 监听后端爬取完成事件，刷新设置（让 lastCrawlTime 显示最新值，无论手动还是定时爬取）
+// 监听后端事件，刷新设置
 let crawlerFinishedListener: UnlistenFn | null = null;
+let settingsChangedListener: UnlistenFn | null = null;
 
 export async function initSettingsEventListeners() {
-  if (crawlerFinishedListener) return; // Already initialized
+  if (crawlerFinishedListener || settingsChangedListener) return; // Already initialized
 
+  // 后端爬取完成事件：刷新设置（让 lastCrawlTime 显示最新值，无论手动还是定时爬取）
   crawlerFinishedListener = await listen('crawler-finished', () => {
+    useSettingsStore.getState().loadSettings();
+  });
+
+  // 后端直接修改设置文件（如点 X 选择关闭行为后）时通知前端刷新，
+  // 避免前端 store 中的旧值在打开设置界面时覆盖磁盘上的新值
+  settingsChangedListener = await listen('settings-changed', () => {
     useSettingsStore.getState().loadSettings();
   });
 }
