@@ -19,7 +19,7 @@ use dao::{DbPool, ensure_database};
 use controller::*;
 use crawler::{CrawlerHandle, crawler_start, crawler_status, crawler_stop, start_crawl_scheduler};
 use settings::{get_settings, save_settings, test_connection, copy_pdf_to_storage, get_pdf_dir, ensure_settings, ensure_pdfs_dir,
-    get_disk_usage, get_storage_stats, cleanup_chat_history, cleanup_reading_history, cleanup_articles_and_pdfs, change_pdf_storage_path,
+    get_disk_usage, get_storage_stats, cleanup_chat_history, cleanup_reading_history, cleanup_articles_and_pdfs, change_pdf_storage_path, change_db_path,
     get_close_behavior, save_close_behavior, sync_autostart, CloseBehavior};
 use layout::{get_layout_config, save_layout_config};
 use service::data_transfer::{export_database, import_database};
@@ -146,6 +146,7 @@ fn run() {
             cleanup_reading_history,
             cleanup_articles_and_pdfs,
             change_pdf_storage_path,
+            change_db_path,
             // Data import/export
             export_database,
             import_database,

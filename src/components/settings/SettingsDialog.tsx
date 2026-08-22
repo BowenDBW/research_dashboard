@@ -63,6 +63,7 @@ import {
 } from '@mui/icons-material';
 import { useTranslation } from 'react-i18next';
 import { invoke } from '@tauri-apps/api/core';
+import { listen, UnlistenFn } from '@tauri-apps/api/event';
 import { open as showOpenDialog, save as showSaveDialog } from '@tauri-apps/plugin-dialog';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { useGmailStore } from '../../stores/useGmailStore';
@@ -131,6 +132,7 @@ export const SettingsDialog = ({ open, onClose }: SettingsDialogProps) => {
   const [dataMessage, setDataMessage] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
   const [dataBusy, setDataBusy] = useState(false);
   const [importConfirm, setImportConfirm] = useState<{ open: boolean; path: string }>({ open: false, path: '' });
+  const [importProgress, setImportProgress] = useState<{ percent: number; readMb: number; totalMb: number } | null>(null);
 
   const appleDevice = isApplePlatform();
 
@@ -480,20 +482,54 @@ export const SettingsDialog = ({ open, onClose }: SettingsDialogProps) => {
     }
   };
 
-  // 确认后合并导入
+  // 确认后合并导入（后台线程执行，通过 import-progress 事件显示进度）
   const handleConfirmImport = async () => {
     const { path } = importConfirm;
     setImportConfirm({ open: false, path: '' });
+    let unlisten: UnlistenFn | null = null;
     try {
       setDataBusy(true);
       setDataMessage({ type: 'info', text: t('settings.importing') });
+      setImportProgress({ percent: 0, readMb: 0, totalMb: 0 });
+      unlisten = await listen<{ readBytes: number; totalBytes: number; percent: number; insertedRows: number }>(
+        'import-progress',
+        (event) => {
+          const p = event.payload;
+          setImportProgress({
+            percent: p.percent,
+            readMb: p.readBytes / 1024 / 1024,
+            totalMb: p.totalBytes / 1024 / 1024,
+          });
+        },
+      );
       const res = await invoke<{ tableCount: number; rowCount: number }>('import_database', { path });
       setDataMessage({ type: 'success', text: t('settings.importSuccess', { count: res.tableCount, rows: res.rowCount }) });
+      setImportProgress(null);
     } catch (err) {
       console.error('Import failed:', err);
       setDataMessage({ type: 'error', text: `${t('settings.dataError')}: ${err}` });
+      setImportProgress(null);
     } finally {
+      if (unlisten) unlisten();
       setDataBusy(false);
+    }
+  };
+
+  // 更改数据库存放路径：后端用 VACUUM INTO 生成副本并更新 settings.dbPath，重启后生效
+  const handleBrowseDbPath = async () => {
+    try {
+      const selected = await showOpenDialog({
+        multiple: false,
+        directory: true,
+        title: t('settings.selectDbFolder'),
+      });
+      if (!selected) return;
+      const newDbPath = await invoke<string>('change_db_path', { newPath: selected });
+      setLocalSettings({ ...localSettings, dbPath: newDbPath });
+      setDataMessage({ type: 'info', text: `数据库已复制到 ${newDbPath}，重启应用后生效` });
+    } catch (err) {
+      console.error('Failed to change db path:', err);
+      setDataMessage({ type: 'error', text: `更改数据库路径失败: ${err}` });
     }
   };
 
@@ -1056,6 +1092,25 @@ export const SettingsDialog = ({ open, onClose }: SettingsDialogProps) => {
               </Button>
             </Box>
           </Box>
+
+          {/* 数据库存放路径 */}
+          <Box sx={{ mb: 3 }}>
+            <Typography variant="body2" gutterBottom>{t('settings.dbStoragePath')}</Typography>
+            <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+              <TextField
+                sx={{ flex: 1 }}
+                value={localSettings.dbPath || '~/.research_dashboard/research_dashboard.db'}
+                slotProps={{ input: { readOnly: true } }}
+                size="small"
+              />
+              <Button variant="outlined" size="small" startIcon={<FolderOpenIcon />} onClick={handleBrowseDbPath} sx={{ flexShrink: 0 }}>
+                {t('settings.browse')}
+              </Button>
+            </Box>
+            <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
+              {t('settings.dbPathHint')}
+            </Typography>
+          </Box>
         </Box>
 
         <Divider sx={{ my: 2 }} />
@@ -1105,6 +1160,16 @@ export const SettingsDialog = ({ open, onClose }: SettingsDialogProps) => {
             >
               {t('settings.importData')}
             </Button>
+
+            {/* 导入进度（后台线程执行，通过 import-progress 事件实时更新） */}
+            {importProgress && (
+              <Box sx={{ mt: 2 }}>
+                <LinearProgress variant="determinate" value={importProgress.percent} sx={{ height: 6, borderRadius: 1 }} />
+                <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
+                  正在导入… {importProgress.percent.toFixed(1)}% （{importProgress.readMb.toFixed(0)} MB / {importProgress.totalMb.toFixed(0)} MB）
+                </Typography>
+              </Box>
+            )}
           </Box>
 
           {dataMessage && (
