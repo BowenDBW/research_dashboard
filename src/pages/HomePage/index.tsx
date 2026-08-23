@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo } from 'react';
+import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { useSearchParams, useOutletContext } from 'react-router-dom';
 import { invoke } from '@tauri-apps/api/core';
 import { open as openFileDialog } from '@tauri-apps/plugin-dialog';
@@ -80,6 +80,7 @@ const HomePage = () => {
   const { t } = useTranslation();
   const [searchParams] = useSearchParams();
   const sessionIdFromUrl = searchParams.get('sessionId');
+  const articleIdFromUrl = searchParams.get('articleId');
 
   const [activeTab, setActiveTab] = useState(0);
   const [inputValue, setInputValue] = useState('');
@@ -271,6 +272,48 @@ const HomePage = () => {
       console.error('附件解析失败:', error);
     }
   };
+
+  // 从库内文章自动导入正文作为对话上下文（ASK AI 入口）。
+  // 后端 chat_attach_article 优先用文章本地 PDF，其次 arXiv 下载；已附加过则幂等返回。
+  const attachArticleToSession = useCallback(async (articleId: string, articleTitle?: string) => {
+    if (!currentSessionId) return;
+    try {
+      const res = await invoke<{ charCount: number; preview: string }>('chat_attach_article', {
+        sessionId: parseInt(currentSessionId),
+        articleId: parseInt(articleId),
+      });
+      setAttachedPdf({
+        fileName: `${articleTitle || articleId}.pdf`,
+        charCount: res.charCount,
+        preview: res.preview,
+      });
+    } catch (error) {
+      console.error('导入文章正文失败:', error);
+      setAttachedPdf(null);
+    }
+  }, [currentSessionId]);
+
+  // 记录已通过 URL 导入过的文章，避免切换会话时重复触发
+  const attachedUrlArticleRef = useRef<string | null>(null);
+
+  // ASK AI 经 URL 带 articleId（ArticleCard / HistoryPage）：切到「一起读」并导入文章正文
+  useEffect(() => {
+    if (articleIdFromUrl && currentSessionId) {
+      setActiveTab(0); // 一起读（aiChat）
+      if (attachedUrlArticleRef.current === articleIdFromUrl) return;
+      attachedUrlArticleRef.current = articleIdFromUrl;
+      attachArticleToSession(articleIdFromUrl);
+    }
+  }, [articleIdFromUrl, currentSessionId, attachArticleToSession]);
+
+  // 会话本身带文章（AbstractDialog 创建 chapter_summary 会话等 ASK AI 入口）：
+  // 会话尚无上下文时自动导入该文章正文
+  useEffect(() => {
+    const session = sessions.find(s => s.id === currentSessionId);
+    if (!session?.articleId) return;
+    if (attachedUrlArticleRef.current === session.articleId) return;
+    attachArticleToSession(session.articleId, session.articleTitle);
+  }, [currentSessionId, sessions, attachArticleToSession]);
 
   const handleSend = async () => {
     if (!inputValue.trim() || !currentSessionId) return;

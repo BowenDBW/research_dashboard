@@ -27,6 +27,7 @@
     "manualAdd": "Manual Add",
     "chatHistory": "Chat History",
     "newChat": "New Chat",
+    "plugins": "Plugins",
     "darkMode": "Dark",
     "lightMode": "Light",
     "deleteChat": "Delete Chat"
@@ -306,6 +307,15 @@
     "confirmTransfer": "Confirm & Move",
     "pendingPathHint": "Will move to: {{path}}",
     "browse": "Browse",
+    "plugins": "Plugins",
+    "pluginsDir": "Plugin Directory",
+    "selectPluginsFolder": "Select Plugins Folder",
+    "reloadPlugins": "Rescan",
+    "pluginLoadError": "Load Error",
+    "noPlugins": "No plugins yet. Drop a plugin folder into the plugins directory and click \"Rescan\".",
+    "editSettings": "Edit Settings",
+    "pluginSettingsSaved": "Plugin settings saved",
+    "pluginsHint": "Each subfolder in the plugins directory is one plugin (plugin.json + optional page/ and data/). Drop a folder in and click \"Rescan\".",
     "storageUsage": "Local Storage Usage",
     "storageBreakdown": "Storage Details",
     "chatHistory": "Chat History",
@@ -435,7 +445,15 @@
     "showHidePanel": "Show/Hide Panel",
     "showHideIcon": "Show/Hide Icon",
     "close": "Close",
-    "expandSidebar": "Expand Sidebar"
+    "expandSidebar": "Expand Sidebar",
+    "openPlugin": "Open Plugin Page",
+    "pluginNoDescription": "This plugin has no description",
+    "pluginNoPageHint": "This plugin has no standalone page"
+  },
+  "pluginPage": {
+    "pluginMissing": "Plugin not found or not loaded",
+    "loadFailed": "Plugin failed to load: {{reason}}",
+    "noPage": "This plugin has no standalone page"
   },
   "manualAdd": {
     "title": "Add Article Manually",

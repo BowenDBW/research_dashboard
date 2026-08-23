@@ -56,6 +56,8 @@ import {
   ArrowUpward as ArrowUpwardIcon,
   Refresh as RefreshIcon,
   Close as CloseIcon,
+  Extension as ExtensionIcon,
+  OpenInNew as OpenInNewIcon,
 } from '@mui/icons-material';
 import {
   DndContext,
@@ -74,7 +76,7 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { useFavoritesStore, useHistoryStore, useDailyStore, useStatsStore, useSubscriptionStore, useChat } from '../../stores';
+import { useFavoritesStore, useHistoryStore, useDailyStore, useStatsStore, useSubscriptionStore, useChat, usePluginStore } from '../../stores';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { DailyRecommendationDialog } from '../daily/DailyRecommendationDialog';
 import { SubscriptionDialog } from '../common/SubscriptionDialog';
@@ -92,9 +94,16 @@ interface RightToolbarProps {
 const TOOLBAR_WIDTH = 300;
 const TRANSITION_DURATION = 200; // ms
 
-// Panel IDs
+// Panel IDs（内置面板 + 插件面板均为字符串 id）
 const DEFAULT_PANEL_ORDER = ['arxiv', 'daily', 'favorites', 'history', 'stats', 'subscription'] as const;
-type PanelId = typeof DEFAULT_PANEL_ORDER[number];
+type PanelId = string;
+
+// layout.json 持久化类型（后端 LayoutConfig，snake_case 字段）
+interface LayoutConfig {
+  panel_order: string[];
+  hidden_panels: string[];
+  expanded_panels: string[];
+}
 
 // Panel configuration with route info - labels will be set dynamically
 const PANEL_CONFIG: Record<PanelId, { icon: React.ReactNode; labelKey: string; route?: string }> = {
@@ -272,6 +281,8 @@ export const RightToolbar = ({ open, onToggle }: RightToolbarProps) => {
   const { settings, updateSettings, loadSettings } = useSettingsStore();
   const { todayStats, fetchTodayStats, statsData, fetchStats } = useStatsStore();
   const { authors, categories, keywords, loadSubscriptions } = useSubscriptionStore();
+  const { plugins, loaded: pluginsLoaded } = usePluginStore();
+  const layoutLoadedRef = useRef(false);
   const [subscriptionDialogOpen, setSubscriptionDialogOpen] = useState(false);
   const [expandedPanels, setExpandedPanels] = useState<string[]>([]);
   const [abstractDialogOpen, setAbstractDialogOpen] = useState(false);
@@ -287,6 +298,53 @@ export const RightToolbar = ({ open, onToggle }: RightToolbarProps) => {
   const [hiddenPanels, setHiddenPanels] = useState<Set<PanelId>>(new Set());
   const [savedOrder, setSavedOrder] = useState<PanelId[] | null>(null);
   const [savedHidden, setSavedHidden] = useState<Set<PanelId> | null>(null);
+
+  // 插件加载/重载后：把新的插件面板并入顺序（保留已有顺序，新插件追加到末尾）
+  useEffect(() => {
+    const pluginIds = plugins.filter((p) => !p.loadError).map((p) => p.id);
+    setPanelOrder((prev) => {
+      const missing = pluginIds.filter((id) => !prev.includes(id));
+      return missing.length ? [...prev, ...missing] : prev;
+    });
+  }, [plugins]);
+
+  // 布局持久化：首次插件列表就绪后加载 layout.json，只应用一次
+  useEffect(() => {
+    if (!pluginsLoaded || layoutLoadedRef.current) return;
+    layoutLoadedRef.current = true;
+    (async () => {
+      try {
+        const layout = await invoke<LayoutConfig>('get_layout_config');
+        if (layout && Array.isArray(layout.panel_order) && layout.panel_order.length) {
+          const known = new Set([...DEFAULT_PANEL_ORDER, ...plugins.map((p) => p.id)]);
+          const saved = layout.panel_order.filter((id) => known.has(id));
+          const rest = [...DEFAULT_PANEL_ORDER, ...plugins.map((p) => p.id)].filter((id) => !saved.includes(id));
+          setPanelOrder([...saved, ...rest]);
+        }
+        if (layout?.hidden_panels) setHiddenPanels(new Set(layout.hidden_panels));
+        if (layout?.expanded_panels?.length) setExpandedPanels(layout.expanded_panels);
+      } catch (e) {
+        console.error('加载布局配置失败:', e);
+      }
+    })();
+  }, [pluginsLoaded, plugins]);
+
+  // 面板配置：内置面板或插件面板（含 icon / 标签 / 跳转路由）
+  const getPanelConfig = useCallback((id: string): { icon: React.ReactNode; label: string; route?: string } => {
+    if (PANEL_CONFIG[id as keyof typeof PANEL_CONFIG]) {
+      const c = PANEL_CONFIG[id as keyof typeof PANEL_CONFIG];
+      return { icon: c.icon, label: t(c.labelKey), route: c.route };
+    }
+    const plugin = plugins.find((p) => p.id === id);
+    if (plugin) {
+      return {
+        icon: <ExtensionIcon fontSize="small" sx={{ color: 'primary.main' }} />,
+        label: plugin.name,
+        route: plugin.hasPage ? `/plugins/${plugin.id}` : undefined,
+      };
+    }
+    return { icon: <ExtensionIcon fontSize="small" />, label: id, route: undefined };
+  }, [plugins, t]);
 
   // Context menu state
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
@@ -525,7 +583,15 @@ export const RightToolbar = ({ open, onToggle }: RightToolbarProps) => {
   };
 
   const handleExitEditMode = (save: boolean) => {
-    if (!save && savedOrder && savedHidden) {
+    if (save) {
+      // 持久化面板顺序 / 隐藏状态（内置 + 插件面板一起保存）
+      const layout: LayoutConfig = {
+        panel_order: panelOrder,
+        hidden_panels: Array.from(hiddenPanels),
+        expanded_panels: expandedPanels,
+      };
+      invoke('save_layout_config', { layout }).catch((e) => console.error('保存布局配置失败:', e));
+    } else if (savedOrder && savedHidden) {
       setPanelOrder(savedOrder);
       setHiddenPanels(savedHidden);
     }
@@ -552,6 +618,39 @@ export const RightToolbar = ({ open, onToggle }: RightToolbarProps) => {
 
   // Panel content renderers
   const renderPanelContent = (panelId: PanelId) => {
+    const plugin = plugins.find((p) => p.id === panelId);
+    if (plugin) {
+      return (
+        <Box sx={{ px: 0.5 }}>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+            {plugin.description || t('rightToolbar.pluginNoDescription')}
+          </Typography>
+          <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mb: 1 }}>
+            {plugin.version && <Chip size="small" variant="outlined" label={`v${plugin.version}`} />}
+            {plugin.author && <Chip size="small" variant="outlined" label={plugin.author} />}
+          </Box>
+          {plugin.loadError && (
+            <Alert severity="warning" sx={{ mb: 1 }}>
+              {plugin.loadError}
+            </Alert>
+          )}
+          {plugin.hasPage ? (
+            <Button
+              size="small"
+              variant="contained"
+              startIcon={<OpenInNewIcon />}
+              onClick={() => navigate(`/plugins/${plugin.id}`)}
+            >
+              {t('rightToolbar.openPlugin')}
+            </Button>
+          ) : (
+            <Typography variant="caption" color="text.disabled">
+              {t('rightToolbar.pluginNoPageHint')}
+            </Typography>
+          )}
+        </Box>
+      );
+    }
     switch (panelId) {
       case 'arxiv':
         return (
@@ -1034,6 +1133,30 @@ export const RightToolbar = ({ open, onToggle }: RightToolbarProps) => {
 
   // Panel summary renderers
   const renderPanelSummary = (panelId: PanelId) => {
+    const plugin = plugins.find((p) => p.id === panelId);
+    if (plugin) {
+      return (
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', pr: 1 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
+            <ExtensionIcon fontSize="small" sx={{ color: 'primary.main' }} />
+            <Typography variant="subtitle2" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {plugin.name}
+            </Typography>
+          </Box>
+          {plugin.hasPage && (
+            <IconButton
+              size="small"
+              onClick={(e) => {
+                e.stopPropagation();
+                navigate(`/plugins/${plugin.id}`);
+              }}
+            >
+              <ArrowForwardIcon fontSize="small" />
+            </IconButton>
+          )}
+        </Box>
+      );
+    }
     switch (panelId) {
       case 'arxiv':
         return (
@@ -1243,7 +1366,7 @@ export const RightToolbar = ({ open, onToggle }: RightToolbarProps) => {
           {panelOrder
             .filter((panelId) => !hiddenPanels.has(panelId))
             .map((panelId) => {
-              const config = PANEL_CONFIG[panelId];
+              const config = getPanelConfig(panelId);
               const handleClick = () => {
                 if (config.route) {
                   navigate(config.route);
@@ -1252,7 +1375,7 @@ export const RightToolbar = ({ open, onToggle }: RightToolbarProps) => {
                 }
               };
               return (
-                <Tooltip key={panelId} title={t(config.labelKey)} placement="left" arrow>
+                <Tooltip key={panelId} title={config.label} placement="left" arrow>
                   <IconButton
                     size="small"
                     onClick={handleClick}
@@ -1288,26 +1411,25 @@ export const RightToolbar = ({ open, onToggle }: RightToolbarProps) => {
         <Typography variant="caption" color="text.secondary" sx={{ px: 2, py: 0.5 }}>
           {open ? t('rightToolbar.showHidePanel') : t('rightToolbar.showHideIcon')}
         </Typography>
-        {Object.entries(PANEL_CONFIG).map(([id, config]) => (
-          <MenuItem
-            key={id}
-            onClick={() => handleTogglePanelVisibility(id as PanelId)}
-            dense
-          >
-            <ListItemIcon sx={{ minWidth: 28 }}>
-              {config.icon}
-            </ListItemIcon>
-            <ListItemText
-              primary={t(config.labelKey)}
-              slotProps={{ primary: { variant: 'body2' } }}
-            />
-            {!hiddenPanels.has(id as PanelId) ? (
-              <VisibilityIcon fontSize="small" sx={{ color: 'primary.main', ml: 'auto' }} />
-            ) : (
-              <VisibilityOffIcon fontSize="small" sx={{ color: 'text.disabled', ml: 'auto' }} />
-            )}
-          </MenuItem>
-        ))}
+        {panelOrder.map((id) => {
+          const config = getPanelConfig(id);
+          return (
+            <MenuItem key={id} onClick={() => handleTogglePanelVisibility(id)} dense>
+              <ListItemIcon sx={{ minWidth: 28 }}>
+                {config.icon}
+              </ListItemIcon>
+              <ListItemText
+                primary={config.label}
+                slotProps={{ primary: { variant: 'body2' } }}
+              />
+              {!hiddenPanels.has(id) ? (
+                <VisibilityIcon fontSize="small" sx={{ color: 'primary.main', ml: 'auto' }} />
+              ) : (
+                <VisibilityOffIcon fontSize="small" sx={{ color: 'text.disabled', ml: 'auto' }} />
+              )}
+            </MenuItem>
+          );
+        })}
       </Menu>
 
       {/* Abstract Dialog */}
@@ -1345,8 +1467,8 @@ export const RightToolbar = ({ open, onToggle }: RightToolbarProps) => {
           <>
             <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                {PANEL_CONFIG[quickPreviewPanel].icon}
-                <Typography variant="subtitle1">{t(PANEL_CONFIG[quickPreviewPanel].labelKey)}</Typography>
+                {getPanelConfig(quickPreviewPanel).icon}
+                <Typography variant="subtitle1">{getPanelConfig(quickPreviewPanel).label}</Typography>
               </Box>
               <IconButton size="small" onClick={() => setQuickPreviewPanel(null)}>
                 <CloseIcon fontSize="small" />

@@ -13,6 +13,7 @@ mod settings;
 mod layout;
 mod crawler;
 mod gmail;
+mod plugin;
 
 // Imports
 use dao::{DbPool, ensure_database};
@@ -22,6 +23,7 @@ use settings::{get_settings, save_settings, test_connection, copy_pdf_to_storage
     get_disk_usage, get_storage_stats, cleanup_chat_history, cleanup_reading_history, cleanup_articles_and_pdfs, change_pdf_storage_path, change_db_path,
     get_close_behavior, save_close_behavior, sync_autostart, CloseBehavior};
 use layout::{get_layout_config, save_layout_config};
+use plugin::{plugins_list, plugins_reload, change_plugins_dir, plugin_db_query, plugin_db_exec, plugin_read_file, plugin_write_file, plugin_http, plugin_update_settings};
 use service::data_transfer::{export_database, import_database};
 use gmail::{
     GmailSyncHandle, gmail_authorize, gmail_auth_status, gmail_logout, gmail_sync,
@@ -40,6 +42,7 @@ pub struct AppState {
     pub db_pool: DbPool,
     pub crawler: CrawlerHandle,
     pub gmail: GmailSyncHandle,
+    pub plugins: plugin::PluginRegistry,
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -60,7 +63,12 @@ fn run() {
     let gmail_scheduler_db_pool = db_pool.clone();
     let gmail_scheduler_handle = gmail.clone();
 
-    let state = Arc::new(AppState { db_pool, crawler, gmail });
+    let state = Arc::new(AppState {
+        db_pool,
+        crawler,
+        gmail,
+        plugins: plugin::PluginRegistry::default(),
+    });
 
     tauri::Builder::default()
         // 单实例：已有实例运行时再次启动，聚焦已有窗口而不是新开进程。
@@ -91,6 +99,8 @@ fn run() {
             start_crawl_scheduler(scheduler_db_pool, scheduler_crawler, app_handle.clone());
             // Start the Gmail scheduler background task
             start_gmail_scheduler(gmail_scheduler_db_pool, gmail_scheduler_handle);
+            // 加载插件目录（失败只记录不中断）
+            plugin::reload_plugins(&app_handle);
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -100,7 +110,20 @@ fn run() {
             }
         })
         .manage(state)
+        // 插件 iframe 页面协议：rdp://<pluginId>/<path> 读取插件目录内文件（含内置 bridge.js）
+        .register_uri_scheme_protocol("rdp", |_ctx, request| crate::plugin::handle_rdp_request(request))
         .invoke_handler(tauri::generate_handler![
+            // Plugins
+            plugins_list,
+            plugins_reload,
+            change_plugins_dir,
+            plugin_db_query,
+            plugin_db_exec,
+            plugin_read_file,
+            plugin_write_file,
+            plugin_http,
+            plugin_update_settings,
+            plugin_update_settings,
             // Settings
             get_settings,
             save_settings,
@@ -173,6 +196,7 @@ fn run() {
             chat_send_message,
             chat_attach_pdf,
             chat_attach_arxiv,
+            chat_attach_article,
             chat_clear_context,
             // Daily
             daily_list,

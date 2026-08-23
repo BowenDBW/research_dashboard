@@ -29,7 +29,8 @@
     "newChat": "新对话",
     "darkMode": "深色",
     "lightMode": "浅色",
-    "deleteChat": "删除对话"
+    "deleteChat": "删除对话",
+    "plugins": "插件"
   },
   "chat": {
     "newChat": "新对话",
@@ -306,6 +307,15 @@
     "confirmTransfer": "确认转移",
     "pendingPathHint": "将转移到：{{path}}",
     "browse": "浏览",
+    "plugins": "插件",
+    "pluginsDir": "插件目录",
+    "selectPluginsFolder": "选择插件存放文件夹",
+    "reloadPlugins": "重新扫描",
+    "pluginLoadError": "加载失败",
+    "noPlugins": "暂无插件。把插件文件夹放入插件目录后点「重新扫描」。",
+    "editSettings": "编辑设置",
+    "pluginSettingsSaved": "插件配置已保存",
+    "pluginsHint": "插件目录内每个子文件夹一个插件（含 plugin.json 与可选 page/、data/）。手动放入文件夹后点「重新扫描」。",
     "storageUsage": "本地存储占用",
     "storageBreakdown": "存储详情",
     "chatHistory": "对话记录",
@@ -435,7 +445,15 @@
     "showHidePanel": "显示/隐藏面板",
     "showHideIcon": "显示/隐藏图标",
     "close": "关闭",
-    "expandSidebar": "展开侧栏"
+    "expandSidebar": "展开侧栏",
+    "openPlugin": "打开插件页面",
+    "pluginNoDescription": "该插件没有描述",
+    "pluginNoPageHint": "该插件没有独立页面"
+  },
+  "pluginPage": {
+    "pluginMissing": "插件不存在或未加载",
+    "loadFailed": "插件加载失败：{{reason}}",
+    "noPage": "该插件没有独立页面"
   },
   "manualAdd": {
     "title": "手动添加文章",

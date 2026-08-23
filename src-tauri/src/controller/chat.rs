@@ -7,7 +7,7 @@ use crate::service::chat::*;
 use crate::models::{CreateSessionRequest, FrontendChatSession, FrontendChatMessage, SendMessageRequest, SendMessageResponse, AttachPdfResult, FrontendArticle};
 use crate::llm::{send_chat_message, generate_session_title, ChatMessage, MessageRole};
 use crate::settings::ensure_settings;
-use crate::dao::chat::{update_session_title, update_session_context, clear_session_context, get_session_by_id, add_message_article};
+use crate::dao::chat::{update_session_title, update_session_context, clear_session_context, get_session_by_id, get_session_context, add_message_article};
 use crate::dao::papers::get_paper_by_id;
 use crate::service::paper_search;
 use crate::dao::DbConnection;
@@ -169,6 +169,63 @@ pub async fn chat_attach_arxiv(
     let text = parse_pdf_text(&tmp_path.to_string_lossy()).await?;
 
     // 4. 用完即删，不占用本地磁盘空间
+    let _ = std::fs::remove_file(&tmp_path);
+
+    store_context_and_build_result(&conn, session_id, text)
+}
+
+/// 从库内文章自动导入正文作为对话上下文（ASK AI 入口）。
+/// 优先使用文章本地 PDF（pdf_path），其次下载 arXiv PDF；两者都没有则报错。
+/// 幂等：会话已附加过上下文时直接返回已有内容，避免重复下载/解析。
+#[tauri::command]
+pub async fn chat_attach_article(
+    state: State<'_, Arc<AppState>>,
+    session_id: i64,
+    article_id: i64,
+) -> Result<AttachPdfResult, String> {
+    let conn = state.db_pool.get()
+        .map_err(|e| format!("获取数据库连接失败: {}", e))?;
+
+    // 幂等：已附加过则直接返回，不重复解析
+    if let Some(ctx) = get_session_context(&conn, session_id)? {
+        if !ctx.trim().is_empty() {
+            return Ok(AttachPdfResult {
+                char_count: ctx.chars().count() as i64,
+                preview: ctx.chars().take(200).collect(),
+            });
+        }
+    }
+
+    let paper = get_paper_by_id(&conn, article_id)?;
+
+    // 1. 优先本地 PDF
+    if let Some(pdf_path) = paper.pdf_path.as_deref().filter(|p| !p.is_empty()) {
+        let path = std::path::PathBuf::from(pdf_path);
+        if path.exists() {
+            let text = parse_pdf_text(&path.to_string_lossy()).await?;
+            return store_context_and_build_result(&conn, session_id, text);
+        }
+    }
+
+    // 2. 其次 arXiv 下载
+    let arxiv_id = paper.preprint_number.clone()
+        .filter(|s| !s.is_empty())
+        .ok_or("该文章没有本地 PDF 也没有 arXiv 编号，无法导入正文")?;
+
+    let url = format!("https://arxiv.org/pdf/{}", arxiv_id);
+    println!("[对话] 下载 arXiv PDF: {}", url);
+    let client = reqwest::Client::new();
+    let resp = client.get(&url).send().await.map_err(|e| format!("下载 PDF 失败: {}", e))?;
+    if !resp.status().is_success() {
+        return Err(format!("下载 PDF 失败: HTTP {}", resp.status()));
+    }
+    let bytes = resp.bytes().await.map_err(|e| format!("读取 PDF 失败: {}", e))?;
+
+    let tmp_name = format!("chat_attach_{}.pdf", arxiv_id.replace(['/', '.'], "_"));
+    let tmp_path = std::env::temp_dir().join(tmp_name);
+    std::fs::write(&tmp_path, &bytes).map_err(|e| format!("写入临时 PDF 失败: {}", e))?;
+
+    let text = parse_pdf_text(&tmp_path.to_string_lossy()).await?;
     let _ = std::fs::remove_file(&tmp_path);
 
     store_context_and_build_result(&conn, session_id, text)

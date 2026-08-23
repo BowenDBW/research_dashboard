@@ -6,6 +6,7 @@ import FavoritesPage from '../pages/FavoritesPage';
 import HistoryPage from '../pages/HistoryPage';
 import DailyPage from '../pages/DailyPage';
 import StatsPage from '../pages/StatsPage';
+import { PluginPage } from '../pages/PluginPage';
 
 const router = createHashRouter([
   {
@@ -19,6 +20,7 @@ const router = createHashRouter([
       { path: 'history', element: <HistoryPage /> },
       { path: 'daily', element: <DailyPage /> },
       { path: 'stats', element: <StatsPage /> },
+      { path: 'plugins/:pluginId', element: <PluginPage /> },
     ],
   },
 ]);

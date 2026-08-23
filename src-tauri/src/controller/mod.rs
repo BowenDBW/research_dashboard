@@ -29,6 +29,6 @@ pub use history::{history_reading, history_chat, history_log, history_delete_rec
 pub use stats::{stats_get, stats_today, stats_trend};
 pub use chat::{
     chat_create_session, chat_get_session, chat_get_messages, chat_delete_session, chat_get_sessions,
-    chat_send_message, chat_attach_pdf, chat_attach_arxiv, chat_clear_context,
+    chat_send_message, chat_attach_pdf, chat_attach_arxiv, chat_attach_article, chat_clear_context,
 };
 pub use daily::{daily_list, daily_detail, daily_recent};

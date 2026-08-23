@@ -76,6 +76,27 @@ pub fn get_db_path() -> Result<PathBuf, String> {
     Ok(ensure_data_dir()?.join("research_dashboard.db"))
 }
 
+/// Get plugins directory path.
+/// 默认 ~/.research_dashboard/plugins/；若 settings["pluginsDir"] 设置了自定义目录则优先。
+pub fn get_plugins_dir() -> Result<PathBuf, String> {
+    let settings = ensure_settings()?;
+    let custom = settings["pluginsDir"].as_str().unwrap_or("");
+    if !custom.is_empty() {
+        let dir = PathBuf::from(custom);
+        if !dir.exists() {
+            fs::create_dir_all(&dir)
+                .map_err(|e| format!("创建插件目录失败: {}", e))?;
+        }
+        return Ok(dir);
+    }
+    let default = ensure_data_dir()?.join("plugins");
+    if !default.exists() {
+        fs::create_dir_all(&default)
+            .map_err(|e| format!("创建插件目录失败: {}", e))?;
+    }
+    Ok(default)
+}
+
 /// Get PDF storage path from settings, fallback to default
 pub fn get_pdf_storage_path() -> Result<PathBuf, String> {
     let settings = ensure_settings()?;
@@ -107,6 +128,7 @@ fn get_default_settings() -> Value {
         "crawlIntervalHours": 4,
         "lastCrawlTime": null,
         "pdfStoragePath": "",
+        "pluginsDir": "",
         "autoLaunch": false,
         // 点 X 关闭窗口时的行为: "exit" 直接退出 / "minimize" 最小化到托盘 / null 每次询问
         "closeBehavior": null,

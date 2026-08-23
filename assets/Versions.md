@@ -20,6 +20,15 @@
     * Picking a folder no longer moves anything immediately — you click **"Confirm & Move"** and the app performs the transfer (DB via online `VACUUM INTO`, PDFs by moving files).
 * **Reverted the 0.1.2 "Ollama 404" workaround:**
     * That 404 came from an incorrectly typed endpoint (e.g. missing `/v1`), not an app bug. The app no longer auto-appends `/v1` to the endpoint — the endpoint is used exactly as configured (Ollama should be `http://127.0.0.1:11434/v1`). The default/placeholder now shows the correct format.
+* **Plugin system:**
+    * A plugin is a folder in the plugins directory (default `~/.research_dashboard/plugins/`, movable in Settings like the DB/PDF paths) containing `plugin.json` (name/version/author/description/icon/hasPage/entry) plus an optional `page/` (its own multi-file frontend) and `data/` (its own storage).
+    * Plugins get full database CRUD (`RdPlugin.db.query/exec`), plugin-scoped file access (`RdPlugin.data.read/write`, confined to their own `data/`, no app-file access), and server-side HTTP fetching (`RdPlugin.http`).
+    * Plugin frontends run in an isolated iframe (`rdp://<id>/…`): a broken plugin can never crash the app — failures are shown as a brief auto-dismissing notice and the plugin is skipped.
+    * Plugin thumbnails appear in the right sidebar (drag to reorder, hide/unhide — layout now persists across restarts); in Settings, the Plugins section lists each plugin that has config as a sub-item that jumps to its settings block (editing config only, no page-launch).
+    * Plugin config lives in the plugin's own `plugin.json` under the `settings` key and is editable in Settings; runtime data stays in the plugin's own `data/`; page/locale/icon assets all live inside the plugin folder (the only app-level state is right-toolbar panel layout).
+    * Plugin pages receive the app's light/dark theme and language (`RdPlugin.theme`/`lang`) so they can match them.
+    * Settings gains a Plugins section: directory picker + confirm-to-move + rescan + per-plugin load status.
+    * Developer manual: `docs/PLUGIN_DEV.md`. A demo plugin is included at `~/.research_dashboard/plugins/demo/`.
 
 ---
 
@@ -42,6 +51,15 @@
     * 选择文件夹后不会立即搬运，需点**「确认转移」**按钮，由应用执行转移（数据库在线 `VACUUM INTO` 复制，PDF 逐个移动文件）。
 * **撤回 0.1.2 的「Ollama 404」修复：**
     * 那个 404 是用户 endpoint 填错导致的（比如漏了 `/v1`），不是应用 bug。应用不再自动给 endpoint 补 `/v1`，endpoint 按填写原样使用（Ollama 应填 `http://127.0.0.1:11434/v1`）。新建服务默认值与输入框占位符已改为正确格式。
+* **插件系统：**
+    * 插件 = 插件目录（默认 `~/.research_dashboard/plugins/`，可在设置里像 DB/PDF 路径一样转移）下的一个文件夹，含 `plugin.json`（名称/版本/作者/描述/图标/hasPage/entry）与可选的 `page/`（插件自己的多文件前端）、`data/`（插件自己的数据）。
+    * 插件获得数据库全量增删改查（`RdPlugin.db.query/exec`）、插件自己的 data 目录读写（`RdPlugin.data.read/write`，限制在自身目录内、拿不到 app 文件）、以及服务端代发 HTTP（`RdPlugin.http`，绕 CORS）。
+    * 插件前端在独立 iframe 运行（`rdp://<id>/…`）：插件崩了绝不影响 app，加载失败只短暂提示几秒并跳过该插件。
+    * 插件缩略信息显示在右边栏（可拖拽排序、可隐藏，布局现在会持久化）；设置界面左侧导引的「插件」板块下，每个有配置项的插件有一个二级子项，点击跳到它在设置里的配置块（只改配置，不开页面）。
+    * 插件配置项存在插件自己的 `plugin.json` 的 `settings` 键下，设置界面可编辑并写回；运行时数据只存插件自己的 `data/`，页面/语言/图标等资源也都在插件文件夹内（唯一存 app 层的是右边栏面板布局位置）。
+    * 插件页面会收到 app 的明暗主题与语言（`RdPlugin.theme`/`lang`），可同步适配主题与 i18n。
+    * 设置里新增「插件」板块：目录选择+确认转移、重新扫描、每个插件的加载状态。
+    * 开发手册：`docs/PLUGIN_DEV.md`；自带示例插件 `~/.research_dashboard/plugins/demo/`。
 
 ---
 

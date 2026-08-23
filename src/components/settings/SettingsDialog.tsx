@@ -58,6 +58,8 @@ import {
   FileCopy as FileCopyIcon,
   Upload as UploadIcon,
   Download as DownloadIcon,
+  Extension as ExtensionIcon,
+  Refresh as RefreshIcon,
 } from '@mui/icons-material';
 import { useTranslation } from 'react-i18next';
 import { invoke } from '@tauri-apps/api/core';
@@ -65,6 +67,8 @@ import { listen, UnlistenFn } from '@tauri-apps/api/event';
 import { open as showOpenDialog, save as showSaveDialog } from '@tauri-apps/plugin-dialog';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { useGmailStore } from '../../stores/useGmailStore';
+import { usePluginStore } from '../../stores/usePluginStore';
+import { PluginSettings } from './PluginSettings';
 import { useThemeMode, ThemePreference } from '../../app/ThemeProvider';
 import { useLanguageStore } from '../../stores/useLanguageStore';
 import { PortProviderConfig, ModelConfig, AppSettings } from '../../types';
@@ -89,6 +93,7 @@ export const SettingsDialog = ({ open, onClose }: SettingsDialogProps) => {
   const { t } = useTranslation();
   const { settings, updateSettings, testConnection } = useSettingsStore();
   const { syncProgress: gmailSyncProgress, startSync, fetchSyncStatus, stopSync } = useGmailStore();
+  const { plugins, reloadPlugins } = usePluginStore();
   const { preference, setPreference } = useThemeMode();
   const { language, setLanguage } = useLanguageStore();
 
@@ -97,6 +102,7 @@ export const SettingsDialog = ({ open, onClose }: SettingsDialogProps) => {
   const initializedRef = useRef(false);
   const [activeSection, setActiveSection] = useState('appearance');
   const [llmExpanded, setLlmExpanded] = useState(true);
+  const [pluginsExpanded, setPluginsExpanded] = useState(true);
   const contentRef = useRef<HTMLDivElement>(null);
   const [confirmDialogOpen, setConfirmDialogOpen] = useState<{ open: boolean; type: 'chat' | 'reading' | 'article' | 'pdf'; months: number }>({ open: false, type: 'chat', months: 3 });
   const [cleanChatMonths, setCleanChatMonths] = useState(3);
@@ -134,6 +140,7 @@ export const SettingsDialog = ({ open, onClose }: SettingsDialogProps) => {
   // 存储路径：选择文件夹后先进入"待确认"状态，点"确认转移"才由 app 执行搬运
   const [pendingDbPath, setPendingDbPath] = useState<string | null>(null);
   const [pendingPdfPath, setPendingPdfPath] = useState<string | null>(null);
+  const [pendingPluginsPath, setPendingPluginsPath] = useState<string | null>(null);
 
   const appleDevice = isApplePlatform();
 
@@ -220,9 +227,24 @@ export const SettingsDialog = ({ open, onClose }: SettingsDialogProps) => {
   };
 
   // Navigation sections
-  const sections = [
+  interface SettingsNavChild { id: string; label: string; icon: React.ReactNode; }
+  interface SettingsNavSection { id: string; label: string; icon: React.ReactNode; children?: SettingsNavChild[]; }
+  const sections: SettingsNavSection[] = [
     { id: 'appearance', label: t('settings.appearance'), icon: <PaletteIcon fontSize="small" /> },
     { id: 'storage', label: t('settings.storage'), icon: <StorageIcon fontSize="small" /> },
+    {
+      id: 'plugins',
+      label: t('settings.plugins'),
+      icon: <ExtensionIcon fontSize="small" />,
+      // 每个有配置项（settings 非空）的插件作为二级子项，点击滚动到它的设置块
+      children: plugins
+        .filter((p) => !p.loadError && p.settings && Object.keys(p.settings).length > 0)
+        .map((p) => ({
+          id: `plugin-${p.id}`,
+          label: p.name,
+          icon: <ExtensionIcon fontSize="small" sx={{ color: 'primary.main' }} />,
+        })),
+    },
     { id: 'data', label: t('settings.data'), icon: <FileCopyIcon fontSize="small" /> },
     { id: 'crawl', label: t('settings.crawler'), icon: <CloudIcon fontSize="small" /> },
     { id: 'gmail', label: 'Gmail', icon: <EmailIcon fontSize="small" /> },
@@ -556,6 +578,42 @@ export const SettingsDialog = ({ open, onClose }: SettingsDialogProps) => {
     }
   };
 
+  // 插件目录：选文件夹 → 待确认 → 确认后由 app 搬运插件并重扫
+  const handleBrowsePluginsPath = async () => {
+    try {
+      const selected = await showOpenDialog({
+        multiple: false,
+        directory: true,
+        title: t('settings.selectPluginsFolder'),
+      });
+      if (selected) setPendingPluginsPath(selected);
+    } catch (err) {
+      console.error('Failed to select plugins folder:', err);
+    }
+  };
+
+  const handleConfirmPluginsPath = async () => {
+    if (!pendingPluginsPath) return;
+    try {
+      const newDir = await invoke<string>('change_plugins_dir', { newPath: pendingPluginsPath });
+      setLocalSettings({ ...localSettings, pluginsDir: newDir });
+      setPendingPluginsPath(null);
+      setDataMessage({ type: 'info', text: '插件目录已转移并重新扫描' });
+    } catch (err) {
+      console.error('Failed to change plugins dir:', err);
+      setDataMessage({ type: 'error', text: `更改插件目录失败: ${err}` });
+    }
+  };
+
+  const handleReloadPlugins = async () => {
+    try {
+      await reloadPlugins();
+      setDataMessage({ type: 'success', text: '插件已重新扫描' });
+    } catch (err) {
+      setDataMessage({ type: 'error', text: `重新扫描插件失败: ${err}` });
+    }
+  };
+
   // Persist gmail config to disk immediately on field blur / slider commit,
   // so the background scheduler can read credentials without waiting for dialog close.
   const persistGmailSettings = () => {
@@ -735,62 +793,67 @@ export const SettingsDialog = ({ open, onClose }: SettingsDialogProps) => {
           }}
         >
           <List dense sx={{ py: 1 }}>
-            {sections.map((section) => (
-              <Box key={section.id}>
-                <ListItemButton
-                  selected={activeSection === section.id || (section.children && activeSection.startsWith(section.id + '-'))}
-                  onClick={() => {
-                    if (section.children) {
-                      setLlmExpanded(!llmExpanded);
-                    } else {
-                      scrollToSection(section.id);
-                    }
-                  }}
-                  sx={{
-                    mx: 0.5,
-                    borderRadius: 1,
-                    '&.Mui-selected': {
-                      bgcolor: 'primary.light',
-                      '&:hover': { bgcolor: 'primary.light' },
-                    },
-                  }}
-                >
-                  <ListItemIcon sx={{ minWidth: 32 }}>{section.icon}</ListItemIcon>
-                  <ListItemText primary={section.label} slotProps={{ primary: { variant: 'body2' } }} />
-                  {section.children && (
-                    <ExpandMoreIcon
-                      sx={{
-                        transform: llmExpanded ? 'rotate(0deg)' : 'rotate(-90deg)',
-                        transition: 'transform 200ms',
-                        fontSize: 18,
-                      }}
-                    />
-                  )}
-                </ListItemButton>
-                {section.children && llmExpanded && (
-                  <List dense disablePadding sx={{ pl: 2 }}>
-                    {section.children.map((child) => (
-                      <ListItemButton
-                        key={child.id}
-                        selected={activeSection === child.id}
-                        onClick={() => scrollToSection(child.id)}
+            {sections.map((section) => {
+              const isPlugins = section.id === 'plugins';
+              const expanded = isPlugins ? pluginsExpanded : llmExpanded;
+              return (
+                <Box key={section.id}>
+                  <ListItemButton
+                    selected={activeSection === section.id || (section.children && activeSection.startsWith(section.id + '-'))}
+                    onClick={() => {
+                      if (section.children) {
+                        if (isPlugins) setPluginsExpanded(!pluginsExpanded);
+                        else setLlmExpanded(!llmExpanded);
+                      } else {
+                        scrollToSection(section.id);
+                      }
+                    }}
+                    sx={{
+                      mx: 0.5,
+                      borderRadius: 1,
+                      '&.Mui-selected': {
+                        bgcolor: 'primary.light',
+                        '&:hover': { bgcolor: 'primary.light' },
+                      },
+                    }}
+                  >
+                    <ListItemIcon sx={{ minWidth: 32 }}>{section.icon}</ListItemIcon>
+                    <ListItemText primary={section.label} slotProps={{ primary: { variant: 'body2' } }} />
+                    {section.children && (
+                      <ExpandMoreIcon
                         sx={{
-                          mx: 0.5,
-                          borderRadius: 1,
-                          '&.Mui-selected': {
-                            bgcolor: 'primary.light',
-                            '&:hover': { bgcolor: 'primary.light' },
-                          },
+                          transform: expanded ? 'rotate(0deg)' : 'rotate(-90deg)',
+                          transition: 'transform 200ms',
+                          fontSize: 18,
                         }}
-                      >
-                        <ListItemIcon sx={{ minWidth: 28 }}>{child.icon}</ListItemIcon>
-                        <ListItemText primary={child.label} slotProps={{ primary: { variant: 'body2' } }} />
-                      </ListItemButton>
-                    ))}
-                  </List>
-                )}
-              </Box>
-            ))}
+                      />
+                    )}
+                  </ListItemButton>
+                  {section.children && expanded && (
+                    <List dense disablePadding sx={{ pl: 2 }}>
+                      {section.children.map((child) => (
+                        <ListItemButton
+                          key={child.id}
+                          selected={activeSection === child.id}
+                          onClick={() => scrollToSection(child.id)}
+                          sx={{
+                            mx: 0.5,
+                            borderRadius: 1,
+                            '&.Mui-selected': {
+                              bgcolor: 'primary.light',
+                              '&:hover': { bgcolor: 'primary.light' },
+                            },
+                          }}
+                        >
+                          <ListItemIcon sx={{ minWidth: 28 }}>{child.icon}</ListItemIcon>
+                          <ListItemText primary={child.label} slotProps={{ primary: { variant: 'body2' } }} />
+                        </ListItemButton>
+                      ))}
+                    </List>
+                  )}
+                </Box>
+              );
+            })}
           </List>
         </Box>
 
@@ -1112,6 +1175,112 @@ export const SettingsDialog = ({ open, onClose }: SettingsDialogProps) => {
             )}
           </Box>
         </Box>
+
+        {/* 插件板块 */}
+        <Box id="section-plugins" sx={{ mb: 3 }}>
+          <Typography variant="subtitle1" gutterBottom sx={{ fontWeight: 600 }}>
+            <ExtensionIcon sx={{ fontSize: 18, mr: 0.5, verticalAlign: 'text-top' }} />
+            {t('settings.plugins')}
+          </Typography>
+
+          {/* 插件目录 */}
+          <Typography variant="body2" gutterBottom>{t('settings.pluginsDir')}</Typography>
+          <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', mb: 1 }}>
+            <TextField
+              sx={{ flex: 1 }}
+              value={localSettings.pluginsDir || '~/.research_dashboard/plugins'}
+              slotProps={{ input: { readOnly: true } }}
+              size="small"
+            />
+            <Button variant="outlined" size="small" startIcon={<FolderOpenIcon />} onClick={handleBrowsePluginsPath} sx={{ flexShrink: 0 }}>
+              {t('settings.browse')}
+            </Button>
+            <Button
+              variant="contained"
+              size="small"
+              disabled={!pendingPluginsPath}
+              onClick={handleConfirmPluginsPath}
+              sx={{ flexShrink: 0 }}
+            >
+              {t('settings.confirmTransfer')}
+            </Button>
+            <Button variant="text" size="small" startIcon={<RefreshIcon />} onClick={handleReloadPlugins} sx={{ flexShrink: 0 }}>
+              {t('settings.reloadPlugins')}
+            </Button>
+          </Box>
+          {pendingPluginsPath ? (
+            <Typography variant="caption" color="warning.main" sx={{ mt: 0.5, display: 'block' }}>
+              {t('settings.pendingPathHint', { path: pendingPluginsPath })}
+            </Typography>
+          ) : (
+            <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block', mb: 2 }}>
+              {t('settings.pluginsHint')}
+            </Typography>
+          )}
+
+          {/* 已加载插件列表 */}
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+            {plugins.length === 0 ? (
+              <Typography variant="body2" color="text.secondary">{t('settings.noPlugins')}</Typography>
+            ) : (
+              plugins.map((plugin) => (
+                <Box
+                  key={plugin.id}
+                  sx={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 1,
+                    p: 1,
+                    borderRadius: 1,
+                    border: 1,
+                    borderColor: 'divider',
+                  }}
+                >
+                  <ExtensionIcon fontSize="small" color="primary" sx={{ flexShrink: 0 }} />
+                  <Box sx={{ flex: 1, minWidth: 0 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                      <Typography variant="body2" sx={{ fontWeight: 600 }}>{plugin.name}</Typography>
+                      {plugin.version && <Typography variant="caption" color="text.secondary">{`v${plugin.version}`}</Typography>}
+                    </Box>
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {plugin.description || `id: ${plugin.id}`}
+                    </Typography>
+                    {plugin.loadError && (
+                      <Typography variant="caption" color="error" sx={{ display: 'block' }}>
+                        {t('settings.pluginLoadError')}: {plugin.loadError}
+                      </Typography>
+                    )}
+                  </Box>
+                  {plugin.settings && Object.keys(plugin.settings).length > 0 && (
+                    <Button
+                      size="small"
+                      onClick={() => scrollToSection(`plugin-${plugin.id}`)}
+                    >
+                      {t('settings.editSettings')}
+                    </Button>
+                  )}
+                </Box>
+              ))
+            )}
+          </Box>
+        </Box>
+
+        {/* 各插件的配置项编辑块（设置左侧导引子项 scrollToSection 的目标：section-plugin-<id>） */}
+        {plugins
+          .filter((p) => !p.loadError && p.settings && Object.keys(p.settings).length > 0)
+          .map((p) => (
+            <Box key={`section-plugin-${p.id}`} id={`section-plugin-${p.id}`} sx={{ mb: 3 }}>
+              <Typography variant="subtitle1" gutterBottom sx={{ fontWeight: 600 }}>
+                <ExtensionIcon sx={{ fontSize: 18, mr: 0.5, verticalAlign: 'text-top' }} />
+                {t('settings.plugins')} · {p.name}
+              </Typography>
+              <PluginSettings
+                plugin={p}
+                onSaved={(msg) => setDataMessage({ type: 'success', text: msg })}
+                onError={(msg) => setDataMessage({ type: 'error', text: msg })}
+              />
+            </Box>
+          ))}
 
         <Divider sx={{ my: 2 }} />
 

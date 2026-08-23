@@ -18,3 +18,4 @@ export { useChatStore, initChatEventListeners } from './useChatStore.ts';
 export { useLanguageStore } from './useLanguageStore.ts';
 export { useSettingsStore } from './useSettingsStore.ts';
 export { useGmailStore } from './useGmailStore.ts';
+export { usePluginStore } from './usePluginStore.ts';
