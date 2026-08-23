@@ -48,14 +48,17 @@ const DailyPage = () => {
     fetchRecommendations(page, pageSize, monthStr);
   }, [page, pageSize, searchMonth, fetchRecommendations]);
 
-  const totalPages = Math.ceil(totalRecommendations / pageSize);
+  const totalPages = Math.ceil(totalRecommendations / pageSize) || 1;
 
   const handlePageChange = (_: React.ChangeEvent<unknown>, value: number) => {
     setPage(value);
   };
 
   const handlePageSizeChange = (event: SelectChangeEvent<number>) => {
-    setPageSize(event.target.value as number);
+    // 钳制非法值：只接受预设选项，否则回退默认 5，避免异常 pageSize 打乱分页
+    const value = Number(event.target.value);
+    const next = PAGE_SIZE_OPTIONS.includes(value as (typeof PAGE_SIZE_OPTIONS)[number]) ? value : 5;
+    setPageSize(next);
     setPage(1);
   };
 
@@ -183,7 +186,7 @@ const DailyPage = () => {
               >
                 {PAGE_SIZE_OPTIONS.map((size) => (
                   <MenuItem key={size} value={size}>
-                    {t('dailyReport.articleCount', { count: size })}
+                    {t('dailyReport.itemsPerPage', { count: size })}
                   </MenuItem>
                 ))}
               </Select>

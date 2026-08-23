@@ -1,4 +1,50 @@
 
+## Research Dashboard V0.1.3
+
+### What's Changed 🚀
+* **Google Alerts crawl window fixed (no more flooding old emails):**
+    * The Gmail search window is now based on **where the data in the database stopped** (`MAX(created_at)` of existing Google recommendations), not the last sync time. The last sync time only decides whether a crawl runs at all.
+    * First crawl after importing data no longer reaches back 90 days — it starts from today, so importing a big database no longer floods the daily report with months of old alerts.
+* **Crawl results are sorted & deduplicated:**
+    * Emails are now processed in chronological order (oldest first), so an article that appears in several alerts is attributed to its earliest appearance date.
+    * Recommendations are guaranteed duplicate-free: existing `UNIQUE(article_id, source)` + `INSERT OR IGNORE`, plus in-run title dedup and a normalized (fuzzy) title match against the library to avoid creating duplicate papers.
+* **Daily report now grouped by email with sub-headings:**
+    * Opening a day shows articles grouped by the alert email they came from, with the **email title as a sub-heading** above each batch (e.g. "2 new related researches to John"), so you can see the author relationship at a glance.
+    * Source emails are stored once in a dedicated table (linked by reference), so the email title is not duplicated across every article in a batch.
+    * Existing Google recommendations were rebuilt once so the grouping applies to all your historical data.
+* **Pagination fixes:**
+    * The total count is now computed from the exact same grouping as the list, so page numbers always match the actual items (no more wrong totals / duplicate or missing pages).
+    * The per-page selector now shows "N / page" instead of "N articles".
+* **Storage paths are directories + confirm-to-move:**
+    * The database & PDF storage path settings now show a **directory only** (no filename); the app appends `research_dashboard.db` / the `pdfs` folder itself.
+    * Picking a folder no longer moves anything immediately — you click **"Confirm & Move"** and the app performs the transfer (DB via online `VACUUM INTO`, PDFs by moving files).
+* **Reverted the 0.1.2 "Ollama 404" workaround:**
+    * That 404 came from an incorrectly typed endpoint (e.g. missing `/v1`), not an app bug. The app no longer auto-appends `/v1` to the endpoint — the endpoint is used exactly as configured (Ollama should be `http://127.0.0.1:11434/v1`). The default/placeholder now shows the correct format.
+
+---
+
+### 更新日志 🚀
+* **修复 Google 推荐爬取窗口（不再疯狂灌旧邮件）：**
+    * Gmail 搜索窗口改为以**数据库里 google 推荐停在哪一天**（现有 google 推荐的 `MAX(created_at)`）为准，而不是上次同步时间；上次同步时间只决定是否触发爬取。
+    * 导入数据后的首次爬取不再回溯 90 天，只从今天开始 —— 导入大数据后不会再把几个月前的旧推荐全部灌进每日推荐。
+* **爬取结果按时间排序 + 去重：**
+    * 邮件按发送时间升序处理，同一篇文章在多封 alert 里重复出现时归到它最早出现的那天。
+    * 推荐保证不重复：保留 `UNIQUE(article_id, source)` + `INSERT OR IGNORE`，并新增批内标题去重与归一化（模糊）标题匹配，避免重复建档导致重复推荐。
+* **每日推荐按邮件分组显示小标题：**
+    * 点开某天，文章按来源邮件分组，每组上方显示**邮件标题作为小标题**（如 "2 new related researches to John"），一眼看出这批文章与作者的关系。
+    * 来源邮件单独存一张表（外键关联），同一封邮件的标题等字段只存一份，不会随每篇文章重复。
+    * 已对现有 Google 推荐做了一次重建回填，历史数据也能按邮件分组展示。
+* **分页修复：**
+    * 总数改为与列表完全相同的分组口径计算，页码与实际条目恒等（不再出现总数错、首末页重复或缺页）。
+    * 每页选择器文案改为「N 条/页」，不再是「N 篇」。
+* **存储路径只填目录 + 点确认才转移：**
+    * 数据库与 PDF 存储路径设置只显示/填写**目录（不含文件名）**，文件名由应用自动补（`research_dashboard.db` / `pdfs` 文件夹）。
+    * 选择文件夹后不会立即搬运，需点**「确认转移」**按钮，由应用执行转移（数据库在线 `VACUUM INTO` 复制，PDF 逐个移动文件）。
+* **撤回 0.1.2 的「Ollama 404」修复：**
+    * 那个 404 是用户 endpoint 填错导致的（比如漏了 `/v1`），不是应用 bug。应用不再自动给 endpoint 补 `/v1`，endpoint 按填写原样使用（Ollama 应填 `http://127.0.0.1:11434/v1`）。新建服务默认值与输入框占位符已改为正确格式。
+
+---
+
 ## Research Dashboard V0.1.2
 
 ### What's Changed 🚀

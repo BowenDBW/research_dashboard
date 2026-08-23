@@ -341,11 +341,19 @@ pub struct FrontendDailyRecommendationItem {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct FrontendDailyRecommendationGroup {
+    /// 邮件标题（如 "2 new related researches to John"）；旧数据无邮件信息时为 ""
+    pub email_subject: String,
+    pub articles: Vec<FrontendArticle>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct FrontendDailyRecommendationDetail {
     pub id: String,
     pub date: String,
     pub article_count: i64,
-    pub articles: Vec<FrontendArticle>,
+    pub groups: Vec<FrontendDailyRecommendationGroup>,
     pub created_at: String,
 }
 

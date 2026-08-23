@@ -52,12 +52,19 @@ pub fn ensure_pdfs_dir() -> Result<PathBuf, String> {
 
 /// Get database file path.
 /// 默认 ~/.research_dashboard/research_dashboard.db；
-/// 若用户通过设置自定义了数据库路径（settings["dbPath"]），则优先使用该路径。
+/// 若用户通过设置自定义了数据库存放目录（settings["dbPath"]），则优先使用该目录并补上文件名。
+/// 兼容旧值：老版本曾在 dbPath 里存完整 .db 文件路径，这里若检测到 .db 文件则按文件使用。
 pub fn get_db_path() -> Result<PathBuf, String> {
     let settings = ensure_settings()?;
     let custom = settings["dbPath"].as_str().unwrap_or("");
     if !custom.is_empty() {
-        let custom_path = PathBuf::from(custom);
+        let raw = PathBuf::from(custom);
+        // dbPath 存的是目录（文件名由 app 拼接）；旧值可能是完整 .db 文件路径
+        let custom_path = if raw.extension().map(|e| e == "db").unwrap_or(false) && !raw.is_dir() {
+            raw
+        } else {
+            raw.join("research_dashboard.db")
+        };
         if let Some(dir) = custom_path.parent() {
             if !dir.exists() {
                 fs::create_dir_all(dir)
@@ -714,13 +721,14 @@ pub fn change_pdf_storage_path(state: tauri::State<'_, std::sync::Arc<AppState>>
 // Database file path change
 // ==========================================
 
-/// 更改数据库存放路径。
+/// 更改数据库存放目录。
 ///
+/// 只接受目录（**不含文件名**，文件名由 app 自动补 `research_dashboard.db`），
 /// 用 SQLite 的 `VACUUM INTO` 在线生成当前数据库的一致性副本到新位置
-/// （无需停止后台写入），并把 `settings["dbPath"]` 指向新路径。
+/// （无需停止后台写入），并把 `settings["dbPath"]` 指向新目录。
 /// 连接池在应用启动时按 `dbPath` 打开数据库，因此**重启应用后生效**。
 ///
-/// 返回值是新数据库文件的完整路径（若传入的是目录则自动补 `research_dashboard.db`）。
+/// 返回值是新的存放目录路径（不含文件名）。
 #[tauri::command]
 pub fn change_db_path(
     state: tauri::State<'_, std::sync::Arc<AppState>>,
@@ -729,16 +737,16 @@ pub fn change_db_path(
     use std::sync::Arc;
 
     let raw = PathBuf::from(&new_path);
-    // 兼容两种输入：目录（自动补默认文件名）或完整 .db 文件路径
-    let db_path = if raw.is_dir() || raw.extension().is_none() {
-        raw.join("research_dashboard.db")
+    // 目录优先；兼容旧调用（误传完整 .db 文件路径时取其父目录作为存放目录）
+    let dir = if raw.extension().map(|e| e == "db").unwrap_or(false) && !raw.is_dir() {
+        raw.parent().map(|p| p.to_path_buf()).unwrap_or(raw.clone())
     } else {
         raw
     };
+    let db_path = dir.join("research_dashboard.db");
 
-    let parent = db_path.parent().ok_or("无效的数据库路径")?;
-    if !parent.exists() {
-        fs::create_dir_all(parent).map_err(|e| format!("创建数据库目录失败: {}", e))?;
+    if !dir.exists() {
+        fs::create_dir_all(&dir).map_err(|e| format!("创建数据库目录失败: {}", e))?;
     }
 
     if db_path.exists() {
@@ -759,12 +767,12 @@ pub fn change_db_path(
     conn.execute(&format!("VACUUM INTO '{}'", escaped), [])
         .map_err(|e| format!("生成数据库副本失败: {}", e))?;
 
-    // 更新 settings.dbPath
+    // 更新 settings.dbPath 为目录（不含文件名）
     let mut settings = ensure_settings()?;
     if let Some(obj) = settings.as_object_mut() {
-        obj.insert("dbPath".to_string(), Value::String(db_path.to_string_lossy().to_string()));
+        obj.insert("dbPath".to_string(), Value::String(dir.to_string_lossy().to_string()));
     }
     write_settings_to_disk(settings)?;
 
-    Ok(db_path.to_string_lossy().to_string())
+    Ok(dir.to_string_lossy().to_string())
 }

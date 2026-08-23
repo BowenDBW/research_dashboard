@@ -3,7 +3,7 @@
 
 use crate::dao::{DbConnection};
 use crate::dao::daily::*;
-use crate::models::{DailyRecommendationListResponse, DailyRecommendationItem, DailyRecommendationDetail, FrontendDailyListResponse, FrontendDailyRecommendationItem, FrontendDailyRecommendationDetail, FrontendArticle};
+use crate::models::{DailyRecommendationListResponse, DailyRecommendationItem, DailyRecommendationDetail, FrontendDailyListResponse, FrontendDailyRecommendationItem, FrontendDailyRecommendationDetail, FrontendDailyRecommendationGroup, FrontendArticle};
 
 /// Convert database DailyRecommendationItem to frontend format
 fn item_to_frontend(item: DailyRecommendationItem) -> FrontendDailyRecommendationItem {
@@ -20,7 +20,10 @@ fn detail_to_frontend(detail: DailyRecommendationDetail) -> FrontendDailyRecomme
         id: detail.id.to_string(),
         date: detail.date.clone(),
         article_count: detail.article_count,
-        articles: detail.articles.into_iter().map(|p| p.into()).collect(),
+        groups: detail.groups.into_iter().map(|g| FrontendDailyRecommendationGroup {
+            email_subject: g.email_subject,
+            articles: g.articles.into_iter().map(|p| p.into()).collect(),
+        }).collect(),
         created_at: detail.created_at.unwrap_or_else(|| format!("{}T00:00:00", detail.date)),
     }
 }

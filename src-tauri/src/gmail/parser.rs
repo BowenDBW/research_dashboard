@@ -81,15 +81,22 @@ pub fn extract_arxiv_id(url: &str) -> Option<String> {
         .map(|m| m.as_str().to_string())
 }
 
-/// 从邮件 Date 头提取发送日期（统一转成 UTC+8），返回 "YYYY-MM-DD"。
-/// 推荐分组必须按邮件发送时间，而不是同步/爬取时间。
-pub fn email_send_date(raw_date: &str) -> Option<String> {
+/// 把 RFC2822 Date 头解析成 UTC+8 时区的完整时间 "YYYY-MM-DD HH:MM:SS"。
+/// 用于天内邮件排序 / email_received_at 存储。解析失败返回 None。
+pub fn email_send_datetime(raw_date: &str) -> Option<String> {
     // 标准 RFC2822 格式，如 "Tue, 18 Aug 2026 03:21:45 +0000"
     chrono::DateTime::parse_from_str(raw_date, "%a, %d %b %Y %H:%M:%S %z").ok()
         .map(|dt| {
             let tz8 = chrono::FixedOffset::east_opt(8 * 3600).unwrap();
-            dt.with_timezone(&tz8).format("%Y-%m-%d").to_string()
+            dt.with_timezone(&tz8).format("%Y-%m-%d %H:%M:%S").to_string()
         })
+}
+
+/// 从邮件 Date 头提取发送日期（统一转成 UTC+8），返回 "YYYY-MM-DD"。
+/// 推荐分组必须按邮件发送时间，而不是同步/爬取时间。
+pub fn email_send_date(raw_date: &str) -> Option<String> {
+    email_send_datetime(raw_date)
+        .map(|dt| dt[..10].to_string())
 }
 
 /// Parse a full Scholar Alert email into structured data
@@ -352,6 +359,22 @@ mod tests {
         assert_eq!(email_send_date("Mon, 17 Aug 2026 23:00:00 -0700"), Some("2026-08-18".to_string()));
         // 无法解析
         assert_eq!(email_send_date(""), None);
+    }
+
+    #[test]
+    fn test_email_send_datetime() {
+        // 完整时间（UTC+8）
+        assert_eq!(
+            email_send_datetime("Tue, 18 Aug 2026 03:21:45 +0000"),
+            Some("2026-08-18 11:21:45".to_string())
+        );
+        // 跨天：UTC+8 后日期+1
+        assert_eq!(
+            email_send_datetime("Mon, 17 Aug 2026 23:00:00 -0700"),
+            Some("2026-08-18 14:00:00".to_string())
+        );
+        // 无法解析
+        assert_eq!(email_send_datetime(""), None);
     }
 
     #[test]

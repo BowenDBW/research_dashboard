@@ -286,7 +286,7 @@ fn find_provider_for_model(model_id: &str, settings: &Value) -> Result<ProviderI
                                 .unwrap_or("unknown").to_string(),
                             provider_type: "port".to_string(),
                             endpoint: provider["endpoint"].as_str()
-                                .unwrap_or("http://localhost:11434").to_string(),
+                                .unwrap_or("http://localhost:11434/v1").to_string(),
                             api_key: provider["apiKey"].as_str()
                                 .unwrap_or("").to_string(),
                             model_name: model["modelName"].as_str()
@@ -417,7 +417,7 @@ mod tests {
         assert!(find_provider_for_model("nope", &settings).is_err());
     }
 
-    /// 端到端实证 404 修复：真实调用本地 Ollama（OpenAI 兼容 /v1/chat/completions）。
+    /// 端到端调用本地 Ollama（OpenAI 兼容接口在 /v1 下，endpoint 需带 /v1）。
     /// 需要 Ollama 运行在 11434 端口且有 gpt-oss:20b 模型；默认忽略，单独用
     /// `cargo test -- --ignored real_ollama_chat_works` 运行。
     #[tokio::test]
@@ -425,7 +425,7 @@ mod tests {
     async fn real_ollama_chat_works() {
         let provider = CloudLlmProvider::new(ProviderConfig {
             id: "uijdj12".to_string(),
-            endpoint: "http://127.0.0.1:11434".to_string(),
+            endpoint: "http://127.0.0.1:11434/v1".to_string(),
             api_key: String::new(),
             model: "gpt-oss:20b".to_string(),
         });

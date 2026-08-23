@@ -202,6 +202,7 @@ async fn run_sync(
     client_id: &str,
     client_secret: &str,
     handle: &GmailSyncHandle,
+    search_after: Option<String>,
 ) -> Result<(i32, i32, i32), String> {
     let conn = db_pool.get()
         .map_err(|e| format!("获取数据库连接失败: {}", e))?;
@@ -211,42 +212,45 @@ async fn run_sync(
     println!("[Gmail同步] 访问令牌获取成功");
 
     let query = "from:scholaralerts-noreply@google.com";
-    // 增量窗口用 settings 里的 lastSyncTime（仅在同步成功结束后写入）。
-    // 这样同步中断（如 panic/断网）不会把窗口前移，重跑会全量、幂等地补齐。
-    let last_sync = crate::settings::ensure_settings().ok()
-        .and_then(|s| s.get("gmail").and_then(|g| g.get("lastSyncTime")).and_then(|v| v.as_str()).map(|s| s.to_string()));
-    let search_query = match last_sync {
-        Some(last) => match chrono::DateTime::parse_from_rfc3339(&last) {
-            Ok(dt) => {
-                let date_part = (dt + chrono::Duration::hours(8)).format("%Y/%m/%d").to_string();
-                println!("[Gmail同步] 上次同步时间: {}, 搜索 {} after:{}", last, query, date_part);
-                format!("{} after:{}", query, date_part)
+    // 搜索窗口只取决于「数据库里 google 推荐停在哪一天」（MAX(created_at)），
+    // 而不是 lastSyncTime。lastSyncTime 只由调度器用于判断到没到时间跑（读取不读取），
+    // 不再参与搜索窗口 —— 读多早的邮件由数据本身决定。
+    // 数据库里还没有任何 google 推荐（从未爬过 / 导入了数据但从未爬取）时，
+    // 只从今天开始搜索，不做 90 天回溯 —— 否则会把几个月前的旧邮件全量灌进来。
+    // search_after 为显式覆盖（仅用于一次性回填场景），Some 时直接用它。
+    let after_date: String = match search_after {
+        Some(after) => {
+            println!("[Gmail同步] 使用显式回填窗口 after:{}", after);
+            after
+        }
+        None => match crate::dao::daily::get_max_google_date(&conn) {
+            Ok(Some(max_date)) => {
+                // "2026-08-22" -> "2026/08/22"（Gmail after: 格式）。重复读回已入库的邮件无害：
+                // 文章级由 UNIQUE(article_id, source) + INSERT OR IGNORE 幂等去重。
+                println!("[Gmail同步] 数据库 google 推荐停在 {}, 从该日起增量搜索", max_date);
+                max_date.replace('-', "/")
             }
-            Err(_) => {
-                println!("[Gmail同步] 上次同步时间格式异常: {}, 按 90 天全量搜索", last);
-                let three_months_ago = chrono::Utc::now() - chrono::TimeDelta::days(90);
-                let date_str = three_months_ago.format("%Y/%m/%d").to_string();
-                format!("{} after:{}", query, date_str)
+            Ok(None) => {
+                let today = chrono::Utc::now() + chrono::Duration::hours(8);
+                let date_str = today.format("%Y/%m/%d").to_string();
+                println!("[Gmail同步] 数据库无 google 推荐记录, 首次同步仅从今天 {} 起搜索（不回溯旧邮件）", date_str);
+                date_str
             }
-        },
-        None => {
-            // First run: fetch the last 90 days (≈3 months) of Scholar Alerts
-            let three_months_ago = chrono::Utc::now() - chrono::TimeDelta::days(90);
-            let date_str = three_months_ago.format("%Y/%m/%d").to_string();
-            println!("[Gmail同步] 首次同步, 搜索 {} after:{}", query, date_str);
-            format!("{} after:{}", query, date_str)
+            Err(e) => {
+                println!("[Gmail同步] 查询最大推荐日期失败({}), 按今天起搜索", e);
+                let today = chrono::Utc::now() + chrono::Duration::hours(8);
+                today.format("%Y/%m/%d").to_string()
+            }
         }
     };
+    let search_query = format!("{} after:{}", query, after_date);
+    println!("[Gmail同步] 搜索: {}", search_query);
 
     println!("[Gmail同步] 正在搜索邮件...");
-    // 一次性拉取尽量多的邮件（Gmail API 上限 500），避免首次同步只处理一页
-    // 就把增量窗口前移，导致更早的邮件永远不再被处理。
     let search_result = crate::gmail::client::search_messages(&token, &search_query, 500).await?;
     let messages = search_result.messages.unwrap_or_default();
     let total = messages.len() as i32;
     println!("[Gmail同步] 搜索到 {} 封 Scholar Alert 邮件", total);
-    let mut processed = 0;
-    let mut total_articles = 0;
 
     handle.update(|p| {
         p.total_emails = total;
@@ -259,91 +263,65 @@ async fn run_sync(
         };
     });
 
+    /// 一封解析完成的 Scholar Alert 邮件（带时间戳，供排序与分组）。
+    struct EmailItem {
+        /// Gmail message id，作为 scholar_emails.gmail_message_id（邮件唯一键）
+        email_id: String,
+        email_subject: String,
+        sender: String,
+        /// "YYYY-MM-DD HH:MM:SS"（UTC+8），用于排序与 scholar_emails.received_at
+        email_datetime: String,
+        /// "YYYY-MM-DD"（邮件发送日期），作为 created_at / 分组日期
+        rec_date: String,
+        articles: Vec<ParsedScholarArticle>,
+    }
+
+    // Phase A: 先全部拉取并解析，收集带发送时间戳的邮件
+    // （Gmail 搜索按新->旧返回，必须排序后处理，否则同一篇论文会归到较新的邮件日期）。
+    let mut collected: Vec<EmailItem> = Vec::new();
     for (i, msg) in messages.iter().enumerate() {
         // Respect cancel request between emails
         if handle.is_cancelled() {
-            println!("[Gmail同步] 收到取消请求, 停止处理 (已处理 {}/{} 封)", processed, total);
+            println!("[Gmail同步] 收到取消请求, 停止获取详情 (已获取 {}/{})", i, total);
             break;
         }
 
-        println!("[Gmail同步] 处理邮件 {}/{} (ID: {})", i + 1, total, &msg.id);
-
-        // 文章去重由 daily_recommendations 的 UNIQUE(article_id, source) 保证（INSERT OR IGNORE），
-        // 邮件级去重依赖增量搜索窗口（after:上次同步日期）。
-
-        println!("[Gmail同步] 获取邮件 {} 详情...", &msg.id);
+        println!("[Gmail同步] 获取邮件 {}/{} 详情 (ID: {})...", i + 1, total, &msg.id);
         let detail = match crate::gmail::client::get_message(&token, &msg.id, "full").await {
             Ok(d) => d,
             Err(e) => {
                 println!("[Gmail同步] 获取邮件 {} 失败: {}", &msg.id, e);
                 handle.push_error(format!("获取邮件 {} 失败: {}", &msg.id, e));
-                processed += 1;
                 handle.update(|p| {
-                    p.processed = processed;
-                    p.message = format!("已处理 {}/{} 封邮件, 提取 {} 篇论文", processed, total, total_articles);
+                    p.processed += 1;
+                    p.message = format!("已拉取 {}/{} 封邮件详情", p.processed.min(total), total);
                 });
                 continue;
             }
         };
 
         if let Some(ref payload) = detail.payload {
-            println!("[Gmail同步] 解析邮件 {} ...", &msg.id);
             match crate::gmail::parser::parse_scholar_email(
                 &msg.id, payload, detail.snippet.as_deref().unwrap_or("")
             ) {
                 Ok(parsed) => {
                     println!("[Gmail同步] 邮件 {} 解析成功: scholar={}, 推荐 {} 篇论文",
                         &msg.id, &parsed.scholar_name, parsed.articles.len());
-                    // 邮件发送日期（UTC+8），推荐分组按它展示；解析失败退回今天
+                    // 邮件发送完整时间（UTC+8）；解析失败退回今天，避免破坏排序
+                    let fallback_now = chrono::Utc::now() + chrono::Duration::hours(8);
+                    let email_datetime = crate::gmail::parser::email_send_datetime(&parsed.recommended_at)
+                        .unwrap_or_else(|| fallback_now.format("%Y-%m-%d %H:%M:%S").to_string());
+                    // 推荐分组按邮件发送日期展示（created_at）
                     let rec_date = crate::gmail::parser::email_send_date(&parsed.recommended_at)
-                        .unwrap_or_else(|| chrono::Utc::now().format("%Y-%m-%d").to_string());
-                    for article in &parsed.articles {
-                        // 1. 匹配已有论文（优先 arxiv_id，其次标题）
-                        let matched = {
-                            let by_arxiv = article.arxiv_id.as_ref()
-                                .and_then(|aid| crate::dao::papers::find_paper_by_arxiv(&conn, aid).ok().flatten());
-                            if by_arxiv.is_some() {
-                                by_arxiv
-                            } else {
-                                match crate::dao::papers::find_paper_by_title(&conn, &article.title) {
-                                    Ok(id_opt) => id_opt,
-                                    Err(e) => {
-                                        handle.push_error(format!("按标题查询论文失败: {}", e));
-                                        None
-                                    }
-                                }
-                            }
-                        };
-
-                        // 2. 论文不在主表则录入（只录可用信息，文章本体信息统一放 papers 表）
-                        let article_id = match matched {
-                            Some(id) => id,
-                            None => match create_paper_from_alert(&conn, article) {
-                                Ok(Some(id)) => id,
-                                Ok(None) => {
-                                    println!("[Gmail同步] 文章 \"{}\" 无足够信息, 跳过", article.title);
-                                    continue;
-                                }
-                                Err(e) => {
-                                    println!("[Gmail同步] 录入论文失败 \"{}\": {}", article.title, e);
-                                    handle.push_error(format!("录入论文失败: {}", e));
-                                    continue;
-                                }
-                            }
-                        };
-
-                        // 3. 写入谷歌推荐标记表（纯标记：article_id + source + 邮件日期，INSERT OR IGNORE 去重）
-                        match crate::dao::daily::add_daily_recommendation(&conn, article_id, "google", &rec_date) {
-                            Ok(_) => {
-                                total_articles += 1;
-                                println!("[Gmail同步] 已推荐 \"{}\" -> article {}", article.title, article_id);
-                            }
-                            Err(e) => {
-                                println!("[Gmail同步] 写入推荐失败 \"{}\": {}", article.title, e);
-                                handle.push_error(format!("写入推荐失败: {}", e));
-                            }
-                        }
-                    }
+                        .unwrap_or_else(|| email_datetime[..10].to_string());
+                    collected.push(EmailItem {
+                        email_id: parsed.gmail_message_id.clone(),
+                        email_subject: parsed.subject.clone(),
+                        sender: parsed.sender_email.clone(),
+                        email_datetime,
+                        rec_date,
+                        articles: parsed.articles,
+                    });
                 }
                 Err(e) => {
                     println!("[Gmail同步] 解析邮件 {} 失败: {}", &msg.id, e);
@@ -354,15 +332,114 @@ async fn run_sync(
             println!("[Gmail同步] 邮件 {} 无payload内容", &msg.id);
         }
 
-        processed += 1;
         handle.update(|p| {
-            p.processed = processed;
-            p.total_articles = total_articles;
-            p.message = format!("已处理 {}/{} 封邮件, 提取 {} 篇论文", processed, total, total_articles);
+            p.processed += 1;
+            p.message = format!("已拉取 {}/{} 封邮件详情", p.processed.min(total), total);
         });
     }
 
-    println!("[Gmail同步] 处理完成: 共 {} 封邮件, 处理 {} 封, 提取 {} 篇论文", total, processed, total_articles);
+    // Phase B: 按邮件发送时间升序（旧->新）排序。
+    // 关键：保证同一篇文章在多封邮件里重复出现时，归到它最早出现的那一天。
+    collected.sort_by(|a, b| a.email_datetime.cmp(&b.email_datetime));
+    let total_sorted = collected.len() as i32;
+    println!("[Gmail同步] 已解析 {} 封邮件, 按时间升序开始写入", total_sorted);
+
+    // Phase C: 按序处理。文章去重由 daily_recommendations 的 UNIQUE(article_id, source)
+    // + INSERT OR IGNORE 保证；批内再按归一化标题去重，避免同一次爬取为同一篇论文重复建档。
+    let mut batch_titles: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
+    let mut processed = 0;
+    let mut total_articles = 0;
+    for item in &collected {
+        if handle.is_cancelled() {
+            println!("[Gmail同步] 收到取消请求, 停止写入 (已处理 {}/{})", processed, total_sorted);
+            break;
+        }
+        processed += 1;
+
+        // 先把来源邮件写入 scholar_emails（按 gmail_message_id 去重），拿到外键 id 供该批推荐复用。
+        // 邮件标题等字段只存这一份，不随每条推荐重复。
+        let email_row_id = match crate::dao::daily::upsert_scholar_email(
+            &conn, &item.email_id, &item.email_subject, &item.sender, &item.email_datetime,
+        ) {
+            Ok(id) => id,
+            Err(e) => {
+                println!("[Gmail同步] 写入来源邮件 {} 失败: {}", item.email_id, e);
+                handle.push_error(format!("写入来源邮件失败: {}", e));
+                continue;
+            }
+        };
+
+        for article in &item.articles {
+            // 1. 匹配已有论文：arxiv_id -> 精确标题 -> 归一化标题 -> 本次批内已建
+            let matched = {
+                let by_arxiv = article.arxiv_id.as_ref()
+                    .and_then(|aid| crate::dao::papers::find_paper_by_arxiv(&conn, aid).ok().flatten());
+                if let Some(id) = by_arxiv {
+                    Some(id)
+                } else {
+                    match crate::dao::papers::find_paper_by_title(&conn, &article.title) {
+                        Ok(Some(id)) => Some(id),
+                        Ok(None) => {
+                            match crate::dao::papers::find_paper_by_title_fuzzy(&conn, &article.title) {
+                                Ok(Some(id)) => Some(id),
+                                _ => {
+                                    let key = crate::dao::papers::normalize_title(&article.title);
+                                    batch_titles.get(&key).copied()
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            handle.push_error(format!("按标题查询论文失败: {}", e));
+                            None
+                        }
+                    }
+                }
+            };
+
+            // 2. 论文不在主表则录入（只录可用信息，文章本体信息统一放 papers 表），并登记批内去重
+            let article_id = match matched {
+                Some(id) => id,
+                None => match create_paper_from_alert(&conn, article) {
+                    Ok(Some(id)) => {
+                        let key = crate::dao::papers::normalize_title(&article.title);
+                        batch_titles.insert(key, id);
+                        id
+                    }
+                    Ok(None) => {
+                        println!("[Gmail同步] 文章 \"{}\" 无足够信息, 跳过", article.title);
+                        continue;
+                    }
+                    Err(e) => {
+                        println!("[Gmail同步] 录入论文失败 \"{}\": {}", article.title, e);
+                        handle.push_error(format!("录入论文失败: {}", e));
+                        continue;
+                    }
+                }
+            };
+
+            // 3. 写入谷歌推荐标记表（INSERT OR IGNORE 去重；email_id 外键关联来源邮件供前端分组显示小标题）
+            match crate::dao::daily::add_daily_recommendation(
+                &conn, article_id, "google", &item.rec_date, Some(email_row_id),
+            ) {
+                Ok(_) => {
+                    total_articles += 1;
+                    println!("[Gmail同步] 已推荐 \"{}\" -> article {} ({})", article.title, article_id, item.rec_date);
+                }
+                Err(e) => {
+                    println!("[Gmail同步] 写入推荐失败 \"{}\": {}", article.title, e);
+                    handle.push_error(format!("写入推荐失败: {}", e));
+                }
+            }
+        }
+
+        handle.update(|p| {
+            p.processed = total_sorted;
+            p.total_articles = total_articles;
+            p.message = format!("已处理 {}/{} 封邮件, 提取 {} 篇论文", processed, total_sorted, total_articles);
+        });
+    }
+
+    println!("[Gmail同步] 处理完成: 共 {} 封邮件, 处理 {} 封, 提取 {} 篇论文", total_sorted, processed, total_articles);
 
     // Update last sync time in settings (counts for partial/cancelled runs too)
     let now = chrono::Utc::now().to_rfc3339();
@@ -530,7 +607,7 @@ pub async fn gmail_sync(
 
     tokio::spawn(async move {
         println!("[Gmail] 手动同步已启动, 正在后台执行 run_sync...");
-        let result = run_sync(&db_pool, &client_id, &client_secret, &handle_clone).await;
+        let result = run_sync(&db_pool, &client_id, &client_secret, &handle_clone, None).await;
         match result {
             Ok((total, processed, articles)) => {
                 let error_count = handle_clone.status().errors.len();
@@ -661,7 +738,7 @@ pub fn start_gmail_scheduler(db_pool: crate::dao::DbPool, handle: GmailSyncHandl
 
                 println!("[Gmail调度器] 开始自动同步...");
                 handle.begin();
-                let result = run_sync(&db_pool, &client_id, &client_secret, &handle).await;
+                let result = run_sync(&db_pool, &client_id, &client_secret, &handle, None).await;
                 match result {
                     Ok((total, processed, articles)) => {
                         let msg = if handle.is_cancelled() {
@@ -683,4 +760,49 @@ pub fn start_gmail_scheduler(db_pool: crate::dao::DbPool, handle: GmailSyncHandl
             }
         });
     });
+}
+
+#[cfg(test)]
+mod backfill_tests {
+    use super::*;
+
+    /// 一次性回填：删除现有 google 推荐并全量重爬，让推荐带上 scholar_emails 来源邮件信息。
+    /// 只作开发/运维工具，正常测试不会执行（#[ignore]）；且必须显式设置 RD_BACKFILL=1，
+    /// 防止误删线上推荐数据。
+    /// 运行：RD_BACKFILL=1 cargo test -- --ignored gmail::backfill_tests::backfill_google_recommendations
+    #[test]
+    #[ignore]
+    fn backfill_google_recommendations() {
+        if std::env::var("RD_BACKFILL").as_deref() != Ok("1") {
+            eprintln!("跳过：需要 RD_BACKFILL=1（会删除现有 google 推荐并全量重爬）");
+            return;
+        }
+        let settings = crate::settings::ensure_settings().expect("读取 settings 失败");
+        let gmail_cfg = settings.get("gmail").cloned().unwrap_or_default();
+        let cid = gmail_cfg.get("clientId").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let csec = gmail_cfg.get("clientSecret").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        assert!(!cid.is_empty() && !csec.is_empty(), "缺少 gmail clientId/clientSecret");
+
+        let pool = crate::dao::ensure_database().expect("打开数据库失败");
+        {
+            let conn = pool.get().expect("获取数据库连接失败");
+            let deleted = conn
+                .execute("DELETE FROM daily_recommendations WHERE source = 'google'", [])
+                .expect("删除 google 推荐失败");
+            println!("[回填] 已删除 {} 条现有 google 推荐", deleted);
+        }
+
+        let rt = tokio::runtime::Runtime::new().expect("创建 runtime 失败");
+        let handle = GmailSyncHandle::new();
+        handle.begin();
+        // 100 天窗口：覆盖用户历史数据最早日期（5 月下旬），避免 90 天窗口丢掉最旧的几天
+        let after = (chrono::Utc::now() - chrono::TimeDelta::days(100)).format("%Y/%m/%d").to_string();
+        println!("[回填] 使用窗口 after:{}", after);
+        match rt.block_on(run_sync(&pool, &cid, &csec, &handle, Some(after))) {
+            Ok((total, processed, articles)) => {
+                println!("[回填] 完成: 共 {} 封邮件, 处理 {} 封, 提取 {} 篇", total, processed, articles);
+            }
+            Err(e) => panic!("[回填] 失败: {}", e),
+        }
+    }
 }

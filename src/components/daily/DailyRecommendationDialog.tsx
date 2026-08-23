@@ -13,6 +13,7 @@ import {
   Close as CloseIcon,
   Article as ArticleIcon,
   CalendarToday as CalendarIcon,
+  Email as MailIcon,
 } from '@mui/icons-material';
 import { useTranslation } from 'react-i18next';
 import { useDailyStore } from '../../stores';
@@ -88,8 +89,32 @@ export const DailyRecommendationDialog = ({ open, recommendationId, onClose }: D
           </Box>
         ) : recommendation ? (
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
-            {recommendation.articles.map((article) => (
-              <ArticleCard key={article.id} article={article} />
+            {recommendation.groups.map((group, groupIdx) => (
+              <Box key={groupIdx}>
+                {group.emailSubject ? (
+                  <Box
+                    sx={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 1,
+                      py: 1,
+                      mb: 1,
+                      borderBottom: 1,
+                      borderColor: 'divider',
+                    }}
+                  >
+                    <MailIcon fontSize="small" color="primary" />
+                    <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+                      {group.emailSubject}
+                    </Typography>
+                  </Box>
+                ) : null}
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                  {group.articles.map((article) => (
+                    <ArticleCard key={article.id} article={article} />
+                  ))}
+                </Box>
+              </Box>
             ))}
           </Box>
         ) : (

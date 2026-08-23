@@ -358,6 +358,38 @@ pub fn find_paper_by_title(conn: &DbConnection, title: &str) -> Result<Option<i6
     }
 }
 
+/// 按「归一化标题」模糊匹配已有论文（大小写、首尾/连续空格、尾部句点差异）。
+/// 供 Gmail Scholar Alert 关联使用：导入数据的标题与 alert 标题存在细微差异时，
+/// 也能命中已有论文，避免为同一篇论文重复建档导致重复推荐。
+/// 归一化：trim + 折叠连续空格 + 去尾部句点 + 转小写。
+pub fn find_paper_by_title_fuzzy(conn: &DbConnection, title: &str) -> Result<Option<i64>, String> {
+    let normalized = normalize_title(title);
+    if normalized.is_empty() {
+        return Ok(None);
+    }
+    let result = conn.query_row(
+        // SQL 归一化与 Rust 侧对齐：trim + 去尾部句点 + 转小写（内部连续空格差异极少，暂不处理）
+        "SELECT article_id FROM papers WHERE lower(rtrim(trim(title), '.')) = ? LIMIT 1",
+        params![normalized],
+        |row| row.get(0),
+    );
+    match result {
+        Ok(id) => Ok(Some(id)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(e) => Err(format!("按标题模糊查询论文失败: {}", e)),
+    }
+}
+
+/// 标题归一化：trim、折叠连续空格、去尾部句点、转小写。
+/// 与 `find_paper_by_title_fuzzy` 的 SQL 归一化保持一致。
+pub fn normalize_title(title: &str) -> String {
+    let mut s = title.trim().split_whitespace().collect::<Vec<_>>().join(" ");
+    while s.ends_with('.') {
+        s.pop();
+    }
+    s.to_lowercase()
+}
+
 /// Get subscribed papers (for subscribed_only filter)
 pub fn get_subscribed_papers(conn: &DbConnection, page: i32, page_size: i32) -> Result<PaperListResponse, String> {
     let params = PaperQueryParams {

@@ -220,6 +220,21 @@ pub fn init_database(conn: &mut Connection) -> Result<(), String> {
         );"
     ).map_err(|e| format!("创建 user_action_logs 表失败: {}", e))?;
 
+    // 归一化：来源邮件抽到独立 scholar_emails 表（一封 Scholar Alert 邮件一行，
+    // 邮件标题等字段只存一份），daily_recommendations 通过 email_id 外键关联，
+    // 避免在每条推荐上冗余重复邮件标题。
+    // 必须先于 daily_recommendations 创建（后者有外键引用）。
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS scholar_emails (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            gmail_message_id TEXT NOT NULL UNIQUE,
+            subject TEXT,
+            sender TEXT,
+            received_at TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );"
+    ).map_err(|e| format!("创建 scholar_emails 表失败: {}", e))?;
+
     // Create daily_recommendations table
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS daily_recommendations (
@@ -227,10 +242,44 @@ pub fn init_database(conn: &mut Connection) -> Result<(), String> {
             article_id INTEGER NOT NULL,
             source TEXT DEFAULT 'google',
             created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            email_id INTEGER REFERENCES scholar_emails(id) ON DELETE SET NULL,
             UNIQUE(article_id, source),
             FOREIGN KEY (article_id) REFERENCES papers(article_id) ON DELETE CASCADE
         );"
     ).map_err(|e| format!("创建 daily_recommendations 表失败: {}", e))?;
+
+    // 迁移：把 daily_recommendations 的邮件关联统一成 scholar_emails 外键列。
+    // - 0.1.2 及以前：无邮件列 -> 直接加 email_id INTEGER 外键列。
+    // - 0.1.3 开发中间版：曾在 recommend 表直接加了 email_id/email_subject/email_received_at
+    //   三列 -> 删除这三列（DROP COLUMN），换成外键列。两种旧结构都不影响现有推荐数据。
+    {
+        let mut stmt = conn
+            .prepare("PRAGMA table_info(daily_recommendations)")
+            .map_err(|e| format!("读取 daily_recommendations 表结构失败: {}", e))?;
+        let cols: Vec<(String, String)> = stmt
+            .query_map([], |row| Ok((row.get::<_, String>(1)?, row.get::<_, String>(2)?)))
+            .map_err(|e| format!("读取 daily_recommendations 表结构失败: {}", e))?
+            .filter_map(|c| c.ok())
+            .collect();
+        drop(stmt);
+
+        // 旧临时方案（三列均为 TEXT）-> 删除
+        if cols.iter().any(|(n, _)| n == "email_subject") {
+            for col in ["email_id", "email_subject", "email_received_at"] {
+                conn.execute_batch(&format!("ALTER TABLE daily_recommendations DROP COLUMN {};", col))
+                    .map_err(|e| format!("删除 daily_recommendations 旧列 {} 失败: {}", col, e))?;
+            }
+        }
+
+        // 确保存在 email_id INTEGER 外键列（先删了旧列则重新加；从未有过则直接加）
+        let has_fk = cols.iter().any(|(n, t)| n == "email_id" && t == "INTEGER");
+        if !has_fk {
+            conn.execute_batch(
+                "ALTER TABLE daily_recommendations ADD COLUMN email_id INTEGER REFERENCES scholar_emails(id) ON DELETE SET NULL;",
+            )
+            .map_err(|e| format!("为 daily_recommendations 增加 email_id 外键列失败: {}", e))?;
+        }
+    }
 
     // 旧版 papers 表 schema 迁移（幂等，新库直接跳过）
     migrate_legacy_papers_schema(conn)?;

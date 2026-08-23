@@ -131,8 +131,14 @@ export const SettingsDialog = ({ open, onClose }: SettingsDialogProps) => {
   const [dataBusy, setDataBusy] = useState(false);
   const [importConfirm, setImportConfirm] = useState<{ open: boolean; path: string }>({ open: false, path: '' });
   const [importProgress, setImportProgress] = useState<{ percent: number; readMb: number; totalMb: number } | null>(null);
+  // 存储路径：选择文件夹后先进入"待确认"状态，点"确认转移"才由 app 执行搬运
+  const [pendingDbPath, setPendingDbPath] = useState<string | null>(null);
+  const [pendingPdfPath, setPendingPdfPath] = useState<string | null>(null);
 
   const appleDevice = isApplePlatform();
+
+  // dbPath 现在存目录；兼容旧值（完整 .db 文件路径）时去掉文件名只显示目录
+  const displayDbDir = localSettings.dbPath?.replace(/[\\/][^\\/]+\.db$/, '') || '~/.research_dashboard';
 
   // Fetch real storage data from backend
   const fetchStorageData = useCallback(async () => {
@@ -261,7 +267,8 @@ export const SettingsDialog = ({ open, onClose }: SettingsDialogProps) => {
     setTestResults((prev) => ({ ...prev, [`${type}-${providerId}`]: result }));
   };
 
-  const handleBrowsePath = async () => {
+  // 选择 PDF 存储文件夹：仅进入"待确认"，不立即执行
+  const handleBrowsePdfPath = async () => {
     try {
       const selected = await showOpenDialog({
         multiple: false,
@@ -269,15 +276,22 @@ export const SettingsDialog = ({ open, onClose }: SettingsDialogProps) => {
         title: t('settings.selectPdfFolder'),
       });
       if (selected) {
-        // Change PDF storage path via backend (moves files)
-        await invoke('change_pdf_storage_path', { newPath: selected });
-        setLocalSettings({
-          ...localSettings,
-          pdfStoragePath: selected,
-        });
+        setPendingPdfPath(selected);
       }
     } catch (err) {
       console.error('Failed to select folder:', err);
+    }
+  };
+
+  // 点"确认转移"后由 app 把 PDF 文件搬到新目录
+  const handleConfirmPdfPath = async () => {
+    if (!pendingPdfPath) return;
+    try {
+      await invoke('change_pdf_storage_path', { newPath: pendingPdfPath });
+      setLocalSettings({ ...localSettings, pdfStoragePath: pendingPdfPath });
+      setPendingPdfPath(null);
+    } catch (err) {
+      console.error('Failed to change PDF storage path:', err);
     }
   };
 
@@ -513,7 +527,7 @@ export const SettingsDialog = ({ open, onClose }: SettingsDialogProps) => {
     }
   };
 
-  // 更改数据库存放路径：后端用 VACUUM INTO 生成副本并更新 settings.dbPath，重启后生效
+  // 选择数据库存放文件夹：仅进入"待确认"，不立即执行
   const handleBrowseDbPath = async () => {
     try {
       const selected = await showOpenDialog({
@@ -522,9 +536,20 @@ export const SettingsDialog = ({ open, onClose }: SettingsDialogProps) => {
         title: t('settings.selectDbFolder'),
       });
       if (!selected) return;
-      const newDbPath = await invoke<string>('change_db_path', { newPath: selected });
-      setLocalSettings({ ...localSettings, dbPath: newDbPath });
-      setDataMessage({ type: 'info', text: `数据库已复制到 ${newDbPath}，重启应用后生效` });
+      setPendingDbPath(selected);
+    } catch (err) {
+      console.error('Failed to select db folder:', err);
+    }
+  };
+
+  // 点"确认转移"后由 app 用 VACUUM INTO 复制数据库到新目录，重启后生效
+  const handleConfirmDbPath = async () => {
+    if (!pendingDbPath) return;
+    try {
+      const newDbDir = await invoke<string>('change_db_path', { newPath: pendingDbPath });
+      setLocalSettings({ ...localSettings, dbPath: newDbDir });
+      setPendingDbPath(null);
+      setDataMessage({ type: 'info', text: `数据库已转移，重启应用后生效` });
     } catch (err) {
       console.error('Failed to change db path:', err);
       setDataMessage({ type: 'error', text: `更改数据库路径失败: ${err}` });
@@ -605,7 +630,7 @@ export const SettingsDialog = ({ open, onClose }: SettingsDialogProps) => {
     const newProvider: PortProviderConfig = {
       id: generateId(),
       name: '新端口服务',
-      endpoint: 'http://127.0.0.1:11434',
+      endpoint: 'http://127.0.0.1:11434/v1',
       apiKey: '',
       models: [],
     };
@@ -1033,10 +1058,24 @@ export const SettingsDialog = ({ open, onClose }: SettingsDialogProps) => {
                 slotProps={{ input: { readOnly: true } }}
                 size="small"
               />
-              <Button variant="outlined" size="small" startIcon={<FolderOpenIcon />} onClick={handleBrowsePath} sx={{ flexShrink: 0 }}>
+              <Button variant="outlined" size="small" startIcon={<FolderOpenIcon />} onClick={handleBrowsePdfPath} sx={{ flexShrink: 0 }}>
                 {t('settings.browse')}
               </Button>
+              <Button
+                variant="contained"
+                size="small"
+                disabled={!pendingPdfPath}
+                onClick={handleConfirmPdfPath}
+                sx={{ flexShrink: 0 }}
+              >
+                {t('settings.confirmTransfer')}
+              </Button>
             </Box>
+            {pendingPdfPath && (
+              <Typography variant="caption" color="warning.main" sx={{ mt: 0.5, display: 'block' }}>
+                {t('settings.pendingPathHint', { path: pendingPdfPath })}
+              </Typography>
+            )}
           </Box>
 
           {/* 数据库存放路径 */}
@@ -1045,17 +1084,32 @@ export const SettingsDialog = ({ open, onClose }: SettingsDialogProps) => {
             <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
               <TextField
                 sx={{ flex: 1 }}
-                value={localSettings.dbPath || '~/.research_dashboard/research_dashboard.db'}
+                value={displayDbDir}
                 slotProps={{ input: { readOnly: true } }}
                 size="small"
               />
               <Button variant="outlined" size="small" startIcon={<FolderOpenIcon />} onClick={handleBrowseDbPath} sx={{ flexShrink: 0 }}>
                 {t('settings.browse')}
               </Button>
+              <Button
+                variant="contained"
+                size="small"
+                disabled={!pendingDbPath}
+                onClick={handleConfirmDbPath}
+                sx={{ flexShrink: 0 }}
+              >
+                {t('settings.confirmTransfer')}
+              </Button>
             </Box>
-            <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
-              {t('settings.dbPathHint')}
-            </Typography>
+            {pendingDbPath ? (
+              <Typography variant="caption" color="warning.main" sx={{ mt: 0.5, display: 'block' }}>
+                {t('settings.pendingPathHint', { path: pendingDbPath })}
+              </Typography>
+            ) : (
+              <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
+                {t('settings.dbPathHint')}
+              </Typography>
+            )}
           </Box>
         </Box>
 
@@ -1513,7 +1567,7 @@ export const SettingsDialog = ({ open, onClose }: SettingsDialogProps) => {
                     <AccordionDetails>
                       <Stack spacing={1.5}>
                         <TextField fullWidth label={t('settings.serviceName')} value={provider.name} onChange={(e) => handleUpdatePortProvider(provider.id, { name: e.target.value })} size="small" />
-                        <TextField fullWidth label={t('settings.apiEndpoint')} value={provider.endpoint} onChange={(e) => handleUpdatePortProvider(provider.id, { endpoint: e.target.value })} placeholder="http://127.0.0.1:11434 或 https://api.openai.com/v1" size="small" />
+                        <TextField fullWidth label={t('settings.apiEndpoint')} value={provider.endpoint} onChange={(e) => handleUpdatePortProvider(provider.id, { endpoint: e.target.value })} placeholder="http://127.0.0.1:11434/v1 或 https://api.openai.com/v1" size="small" />
                         <TextField fullWidth label={t('settings.apiKey')} type="password" value={provider.apiKey} onChange={(e) => handleUpdatePortProvider(provider.id, { apiKey: e.target.value })} size="small" />
                         <Button variant="outlined" size="small" onClick={() => handleTestConnection(provider.id, 'port')} sx={{ alignSelf: 'flex-start' }}>{t('settings.testConnection')}</Button>
                         {testResults[`port-${provider.id}`] && (
