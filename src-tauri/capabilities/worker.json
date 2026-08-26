@@ -1,0 +1,11 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "plugin-worker",
+  "description": "Capability for hidden plugin background worker windows (label plugin-worker-*)",
+  "windows": [
+    "plugin-worker-*"
+  ],
+  "permissions": [
+    "core:event:default"
+  ]
+}
