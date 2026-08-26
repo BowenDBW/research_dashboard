@@ -23,7 +23,11 @@ use settings::{get_settings, save_settings, test_connection, copy_pdf_to_storage
     get_disk_usage, get_storage_stats, cleanup_chat_history, cleanup_reading_history, cleanup_articles_and_pdfs, change_pdf_storage_path, change_db_path,
     get_close_behavior, save_close_behavior, sync_autostart, CloseBehavior};
 use layout::{get_layout_config, save_layout_config};
-use plugin::{plugins_list, plugins_reload, change_plugins_dir, plugin_db_query, plugin_db_exec, plugin_read_file, plugin_write_file, plugin_http, plugin_update_settings};
+use plugin::{
+    plugins_list, plugins_reload, change_plugins_dir, plugin_db_query, plugin_db_exec, plugin_read_file,
+    plugin_write_file, plugin_http, plugin_update_settings, plugin_notify, plugin_open_url, plugin_log,
+    spawn_all_workers, start_plugin_scheduler,
+};
 use service::data_transfer::{export_database, import_database};
 use gmail::{
     GmailSyncHandle, gmail_authorize, gmail_auth_status, gmail_logout, gmail_sync,
@@ -98,9 +102,12 @@ fn run() {
             // Start the scheduled crawler background task
             start_crawl_scheduler(scheduler_db_pool, scheduler_crawler, app_handle.clone());
             // Start the Gmail scheduler background task
-            start_gmail_scheduler(gmail_scheduler_db_pool, gmail_scheduler_handle);
+            start_gmail_scheduler(gmail_scheduler_db_pool, gmail_scheduler_handle, app_handle.clone());
             // 加载插件目录（失败只记录不中断）
             plugin::reload_plugins(&app_handle);
+            // 拉起声明了 worker 的插件的隐藏后台窗口，并启动插件调度器（定期 tick worker）
+            plugin::spawn_all_workers(&app_handle);
+            plugin::start_plugin_scheduler(app_handle.clone());
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -123,7 +130,9 @@ fn run() {
             plugin_write_file,
             plugin_http,
             plugin_update_settings,
-            plugin_update_settings,
+            plugin_notify,
+            plugin_open_url,
+            plugin_log,
             // Settings
             get_settings,
             save_settings,

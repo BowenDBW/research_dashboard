@@ -12,7 +12,8 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::webview::WebviewWindowBuilder;
+use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl};
 use crate::AppState;
 use crate::settings::get_plugins_dir;
 
@@ -28,6 +29,8 @@ pub struct PluginInfo {
     pub icon: Option<String>,
     pub has_page: bool,
     pub entry: Option<String>,
+    /// 可选：后台 worker 入口（相对插件目录的 HTML），app 会为它建隐藏窗口常驻后台
+    pub worker: Option<String>,
     /// 插件配置项（plugin.json 的一级键 "settings" 下的键值对），设置界面可编辑
     pub settings: Option<serde_json::Value>,
     pub dir: String,
@@ -39,6 +42,10 @@ impl PluginInfo {
     /// 插件页面入口文件（相对插件目录）；缺省 page/index.html。
     pub fn page_entry(&self) -> String {
         self.entry.clone().unwrap_or_else(|| "page/index.html".to_string())
+    }
+    /// 插件后台 worker 入口（相对插件目录）；无 worker 返回 None。
+    pub fn worker_entry(&self) -> Option<String> {
+        self.worker.clone()
     }
 }
 
@@ -55,6 +62,8 @@ struct PluginManifest {
     #[serde(default)]
     has_page: bool,
     entry: Option<String>,
+    #[serde(default)]
+    worker: Option<String>,
     #[serde(default)]
     settings: Option<serde_json::Value>,
 }
@@ -87,6 +96,11 @@ fn scan_plugin(dir: &Path) -> PluginInfo {
                 return Err(format!("入口文件 {} 不存在", entry));
             }
         }
+        if let Some(worker) = meta.worker.as_ref() {
+            if !dir.join(worker).exists() {
+                return Err(format!("worker 入口文件 {} 不存在", worker));
+            }
+        }
         Ok(PluginInfo {
             id,
             name: meta.name,
@@ -96,6 +110,7 @@ fn scan_plugin(dir: &Path) -> PluginInfo {
             icon: meta.icon,
             has_page: meta.has_page,
             entry: meta.entry,
+            worker: meta.worker,
             settings: meta.settings,
             dir: dir_str.clone(),
             load_error: None,
@@ -113,6 +128,7 @@ fn scan_plugin(dir: &Path) -> PluginInfo {
             icon: None,
             has_page: false,
             entry: None,
+            worker: None,
             settings: None,
             dir: dir_str,
             load_error: Some(e),
@@ -247,6 +263,180 @@ pub fn change_plugins_dir(app: AppHandle, new_path: String) -> Result<String, St
 
     reload_plugins(&app);
     Ok(new_dir.to_string_lossy().to_string())
+}
+
+// ==========================================
+// 后台 worker 与通知（给插件提供后台执行 + app 顶层提醒）
+//
+// - 插件 plugin.json 里声明 "worker": "worker.html" 后，app 启动/定时器会为它建一个
+//   隐藏 WebviewWindow（label: plugin-worker-<id>），加载 rdp://<id>/worker.html，
+//   页面内用 rdp://core/worker-bridge.js（直接走 __TAURI_INTERNALS__，不经 React 转发）。
+// - Rust 侧 start_plugin_scheduler 每 20 分钟（及启动后不久）向 worker 窗口 emit
+//   "plugin-tick"，worker 自行判断是否到爬取间隔（读自身 data/ 下的 lastCrawl）。
+// - worker 调 RdPlugin.notify(payload) → plugin_notify 命令 → emit "plugin-notification"
+//   事件到主窗口，由前端 PluginNotificationCenter 弹 app 顶层对话窗/气泡。
+// ==========================================
+
+/// 插件日志：把 worker/页面里的 console 消息转发到 app 标准输出（便于排障）。
+#[tauri::command]
+pub fn plugin_log(app: AppHandle, plugin_id: String, message: String, level: Option<String>) -> Result<(), String> {
+    let lv = level.unwrap_or_else(|| "info".to_string());
+    println!("[插件 {}][{}] {}", plugin_id, lv, message);
+    Ok(())
+}
+
+/// 通用 app 气泡提醒：给后台任务（arXiv 爬虫、Gmail 同步等）完成时弹顶层气泡。
+/// 复用 "plugin-notification" 事件通道；payload 不带 pluginId（前端按 route 跳转、或不跳转）。
+pub fn emit_app_bubble(app: &AppHandle, title: &str, body: &str, route: Option<&str>) {
+    let mut obj = serde_json::Map::new();
+    obj.insert("kind".to_string(), serde_json::json!("bubble"));
+    obj.insert("title".to_string(), serde_json::json!(title));
+    obj.insert("body".to_string(), serde_json::json!(body));
+    if let Some(r) = route {
+        obj.insert("route".to_string(), serde_json::json!(r));
+    }
+    println!("[通知] 气泡: {} | {}", title, body);
+    let _ = app.emit("plugin-notification", serde_json::Value::Object(obj));
+}
+
+/// 插件通知：把 payload 以 "plugin-notification" 事件发到主窗口。
+/// payload 形如 { title, body, kind: "dialog"|"bubble", level?, subject? }，
+/// 由 worker 拼好、前端渲染。插件 plugin.json settings.notifyEnabled 显式为 false 时忽略。
+#[tauri::command]
+pub fn plugin_notify(app: AppHandle, plugin_id: String, payload: serde_json::Value) -> Result<(), String> {
+    // 校验插件存在
+    let plugin = match app.try_state::<Arc<AppState>>() {
+        Some(s) => s.plugins.get(&plugin_id),
+        None => None,
+    };
+    let plugin = plugin.ok_or_else(|| format!("插件不存在: {}", plugin_id))?;
+
+    // 通知总开关：plugin.json settings.notifyEnabled = false 时静默忽略
+    if let Some(settings) = plugin.settings.as_ref() {
+        if settings.get("notifyEnabled").and_then(|v| v.as_bool()) == Some(false) {
+            return Ok(());
+        }
+    }
+
+    let mut obj = match payload {
+        serde_json::Value::Object(o) => o,
+        _ => return Err("payload 必须是 JSON 对象".to_string()),
+    };
+    if obj.get("kind").and_then(|v| v.as_str()).map(|k| k != "dialog" && k != "bubble").unwrap_or(false) {
+        return Err("kind 只支持 dialog 或 bubble".to_string());
+    }
+    obj.insert("pluginId".to_string(), serde_json::json!(plugin_id));
+    obj.insert("pluginName".to_string(), serde_json::json!(plugin.name));
+    if !obj.contains_key("ts") {
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+        obj.insert("ts".to_string(), serde_json::json!(ts));
+    }
+    let kind = obj.get("kind").and_then(|v| v.as_str()).unwrap_or("?");
+    let title = obj.get("title").and_then(|v| v.as_str()).unwrap_or("");
+    println!("[插件] {} 发送提醒 (kind={}): {}", plugin_id, kind, title);
+    let _ = app.emit("plugin-notification", serde_json::Value::Object(obj));
+    Ok(())
+}
+
+/// 用系统默认浏览器/应用打开外部链接（插件页面里点会议官网/DBLP 用；走 app 已注册的 opener 插件）。
+#[tauri::command]
+pub fn plugin_open_url(app: AppHandle, url: String) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    app.opener()
+        .open_url(url, None::<String>)
+        .map_err(|e| format!("打开链接失败: {}", e))
+}
+
+/// 为指定插件启动隐藏 worker 窗口（label: plugin-worker-<id>，加载 rdp://<id>/worker 入口）。
+/// 必须在主线程调用（Tauri/WKWebView 要求窗口创建在主线程）。
+pub fn spawn_plugin_worker(app: &AppHandle, plugin_id: &str) -> Result<(), String> {
+    let plugin = match app.try_state::<Arc<AppState>>() {
+        Some(s) => s.plugins.get(plugin_id),
+        None => None,
+    };
+    let plugin = plugin.ok_or_else(|| format!("插件不存在: {}", plugin_id))?;
+    let worker_entry = plugin.worker_entry().ok_or_else(|| format!("插件 {} 没有 worker 入口", plugin_id))?;
+
+    let label = format!("plugin-worker-{}", plugin_id);
+    if app.get_webview_window(&label).is_some() {
+        return Ok(()); // 已存在
+    }
+
+    let url: tauri::Url = format!("rdp://{}/{}", plugin_id, worker_entry)
+        .parse()
+        .map_err(|_| "worker URL 无效".to_string())?;
+    WebviewWindowBuilder::new(app, &label, WebviewUrl::External(url))
+        .title(format!("{} (worker)", plugin.name))
+        .visible(false)
+        .skip_taskbar(true)
+        .focused(false)
+        .build()
+        .map_err(|e| format!("创建 worker 窗口失败: {}", e))?;
+    println!("[插件] 已启动 {} 的后台 worker", plugin_id);
+    Ok(())
+}
+
+/// 为所有声明了 worker 的插件拉起隐藏 worker 窗口（在 setup 主线程调用）。
+pub fn spawn_all_workers(app: &AppHandle) {
+    let plugins = match app.try_state::<Arc<AppState>>() {
+        Some(s) => s.plugins.list(),
+        None => return,
+    };
+    for plugin in plugins {
+        if plugin.worker.is_some() && plugin.load_error.is_none() {
+            if let Err(e) = spawn_plugin_worker(app, &plugin.id) {
+                eprintln!("[插件] 拉起 worker 失败 ({}): {}", plugin.id, e);
+            }
+        }
+    }
+}
+
+/// 后台调度：对每个声明了 worker 的插件，确保隐藏窗口存活并 emit "plugin-tick"。
+/// 是否真正爬取由 worker 自己按间隔决定（读自身 data/ 下的 lastCrawl）。
+fn tick_plugins(app: &AppHandle) {
+    let plugins = match app.try_state::<Arc<AppState>>() {
+        Some(s) => s.plugins.list(),
+        None => return,
+    };
+    let worker_plugins: Vec<PluginInfo> = plugins
+        .into_iter()
+        .filter(|p| p.worker.is_some() && p.load_error.is_none())
+        .collect();
+    for plugin in worker_plugins {
+        let id = plugin.id.clone();
+        let app_for_closure = app.clone();
+        // 窗口创建必须发生在主线程；用 run_on_main_thread 排队，成功后再发 tick
+        let _ = app.run_on_main_thread(move || {
+            if let Err(e) = spawn_plugin_worker(&app_for_closure, &id) {
+                eprintln!("[插件调度] 启动 worker 失败 ({}): {}", id, e);
+                return;
+            }
+            let label = format!("plugin-worker-{}", id);
+            if let Some(win) = app_for_closure.get_webview_window(&label) {
+                let _ = win.emit("plugin-tick", serde_json::json!({ "ts": 0 }));
+            }
+        });
+    }
+}
+
+/// 启动插件后台调度器（独立 OS 线程 + 独立 Tokio runtime，与 crawler/gmail 调度器同款模式）。
+/// 启动后 ~5 秒先 tick 一轮（首次爬取/worker 拉起），之后每 ~20 分钟一轮。
+pub fn start_plugin_scheduler(app: AppHandle) {
+    std::thread::spawn(move || {
+        let rt = tokio::runtime::Runtime::new().expect("Failed to create plugin scheduler runtime");
+        rt.block_on(async move {
+            // 等 app 完全启动后再拉起 worker / 首轮 tick
+            tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+            tick_plugins(&app);
+            loop {
+                tokio::time::sleep(tokio::time::Duration::from_secs(20 * 60)).await;
+                tick_plugins(&app);
+            }
+        });
+    });
 }
 
 // ==========================================
@@ -485,6 +675,8 @@ pub fn handle_rdp_request(request: tauri::http::Request<Vec<u8>>) -> tauri::http
 
     let bytes = if plugin_id == "core" && path == "bridge.js" {
         BRIDGE_JS.as_bytes().to_vec()
+    } else if plugin_id == "core" && path == "worker-bridge.js" {
+        WORKER_BRIDGE_JS.as_bytes().to_vec()
     } else if plugin_id == "core" {
         return tauri::http::Response::builder()
             .status(404).body(Vec::new()).unwrap_or_default();
@@ -511,6 +703,8 @@ pub const BRIDGE_JS: &str = r#"
   if (window.RdPlugin) return;
   var pending = {};
   var seq = 0;
+  // 插件 id：rdp://<pluginId>/... 的 host
+  var PLUGIN_ID = (window.location && window.location.host) || '';
   // app 主题/语言上下文（由 app 通过 rdp-context 消息推送，供插件适配明暗主题与 i18n）
   var _ctx = { theme: 'light', lang: 'zh' };
   var _ctxListeners = [];
@@ -547,16 +741,73 @@ pub const BRIDGE_JS: &str = r#"
       exec: function (sql, params) { return invoke('plugin_db_exec', { sql: sql, params: params || [] }); }
     },
     data: {
-      read: function (path) { return invoke('plugin_read_file', { path: path }); },
-      write: function (path, content) { return invoke('plugin_write_file', { path: path, content: content }); }
+      read: function (path) { return invoke('plugin_read_file', { pluginId: PLUGIN_ID, path: path }); },
+      write: function (path, content) { return invoke('plugin_write_file', { pluginId: PLUGIN_ID, path: path, content: content }); }
     },
     http: {
       get: function (url, headers) { return invoke('plugin_http', { method: 'GET', url: url, headers: headers || {}, body: null }); },
       post: function (url, body, headers) { return invoke('plugin_http', { method: 'POST', url: url, headers: headers || {}, body: body || null }); }
     },
+    open: function (url) { return invoke('plugin_open_url', { url: url }); },
+    updateSettings: function (settings) { return invoke('plugin_update_settings', { pluginId: PLUGIN_ID, settings: settings || {} }); },
+    get pluginId() { return PLUGIN_ID; },
     get theme() { return _ctx.theme; },           // 'light' | 'dark'
     get lang() { return _ctx.lang; },             // 'zh' | 'en'（app 当前语言）
     onContext: function (fn) { if (typeof fn === 'function') _ctxListeners.push(fn); }
+  };
+})();
+"#;
+
+/// worker 专用桥：给后台 worker 页面提供 window.RdPlugin。
+/// worker 运行在隐藏 WebviewWindow 的顶层页（rdp://<pluginId>/worker.html），
+/// 直接有 __TAURI_INTERNALS__，invoke 不再经 React postMessage 转发。
+/// 额外提供 RdPlugin.notify（app 顶层提醒）与 RdPlugin.onTick（订阅 Rust 调度 tick）。
+pub const WORKER_BRIDGE_JS: &str = r#"
+(function () {
+  if (window.RdPlugin) return;
+  var inv = window.__TAURI_INTERNALS__;
+  if (!inv || typeof inv.invoke !== 'function') {
+    console.error('[worker-bridge] 缺少 __TAURI_INTERNALS__，后台 worker 无法调用 app 接口');
+    return;
+  }
+  // rdp://<pluginId>/... 的 host 就是插件 id
+  var PLUGIN_ID = window.__RDP_PLUGIN_ID__ || (window.location && window.location.host) || '';
+  window.__RDP_PLUGIN_ID__ = PLUGIN_ID;
+
+  function invoke(cmd, args) {
+    return inv.invoke(cmd, args || {});
+  }
+
+  window.RdPlugin = {
+    db: {
+      query: function (sql, params) { return invoke('plugin_db_query', { sql: sql, params: params || [] }); },
+      exec: function (sql, params) { return invoke('plugin_db_exec', { sql: sql, params: params || [] }); }
+    },
+    data: {
+      read: function (path) { return invoke('plugin_read_file', { pluginId: PLUGIN_ID, path: path }); },
+      write: function (path, content) { return invoke('plugin_write_file', { pluginId: PLUGIN_ID, path: path, content: content }); }
+    },
+    http: {
+      get: function (url, headers) { return invoke('plugin_http', { method: 'GET', url: url, headers: headers || {}, body: null }); },
+      post: function (url, body, headers) { return invoke('plugin_http', { method: 'POST', url: url, headers: headers || {}, body: body || null }); }
+    },
+    open: function (url) { return invoke('plugin_open_url', { url: url }); },
+    // 把 worker 里的日志转发到 app 标准输出
+    log: function (msg, level) { return invoke('plugin_log', { pluginId: PLUGIN_ID, message: String(msg), level: level || 'info' }); },
+    // 发 app 顶层提醒：payload = { title, body, kind: 'dialog'|'bubble', level?, subject? }
+    notify: function (payload) {
+      return invoke('plugin_notify', { pluginId: PLUGIN_ID, payload: payload || {} });
+    },
+    // 订阅 Rust 调度器 tick（后台 worker 用它触发爬取）
+    onTick: function (fn) {
+      if (typeof fn !== 'function') return;
+      if (inv.event && typeof inv.event.listen === 'function') {
+        inv.event.listen('plugin-tick', function () {
+          try { fn(); } catch (err) { console.error('[worker] tick 回调出错:', err); }
+        });
+      }
+    },
+    get pluginId() { return PLUGIN_ID; }
   };
 })();
 "#;

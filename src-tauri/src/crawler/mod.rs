@@ -99,21 +99,31 @@ pub async fn crawler_start(
 
         let mut inner = handle_clone.inner.lock().unwrap();
         inner.progress.is_running = false;
+        let bubble_msg;
         match result {
             Ok(res) => {
                 println!("爬取完成: 新增 {} 篇, 分类: {:?}",
                     res.articles_saved, res.subjects_processed);
-                if !res.errors.is_empty() {
+                let err_count = res.errors.len();
+                if err_count > 0 {
                     inner.progress.errors = res.errors;
                 }
-                // Don't set last error as a success message, keep progress clean
+                let err_tail = if err_count > 0 {
+                    format!("，{} 个学科失败", err_count)
+                } else {
+                    String::new()
+                };
+                bubble_msg = format!("新增 {} 篇，处理 {} 个学科{}", res.articles_saved, res.subjects_processed.len(), err_tail);
             }
             Err(e) => {
+                bubble_msg = format!("失败：{}", e);
                 inner.progress.errors.push(e);
             }
         }
         // 通知前端刷新 lastCrawlTime 等设置
         let _ = app_clone.emit("crawler-finished", ());
+        // 弹 app 顶层气泡
+        crate::plugin::emit_app_bubble(&app_clone, "arXiv 爬取完成", &bubble_msg, Some("/articles"));
     });
 
     Ok("爬虫已启动".to_string())
@@ -252,21 +262,32 @@ pub fn start_crawl_scheduler(db_pool: crate::dao::DbPool, crawler: CrawlerHandle
 
                     let mut inner = crawler.inner.lock().unwrap();
                     inner.progress.is_running = false;
+                    let bubble_msg;
                     match result {
                         Ok(res) => {
                             println!("[调度器] 定时爬取完成: 新增 {} 篇, 分类: {:?}",
                                 res.articles_saved, res.subjects_processed);
-                            if !res.errors.is_empty() {
+                            let err_count = res.errors.len();
+                            if err_count > 0 {
                                 inner.progress.errors = res.errors;
                             }
+                            let err_tail = if err_count > 0 {
+                                format!("，{} 个学科失败", err_count)
+                            } else {
+                                String::new()
+                            };
+                            bubble_msg = format!("新增 {} 篇，处理 {} 个学科{}", res.articles_saved, res.subjects_processed.len(), err_tail);
                         }
                         Err(e) => {
                             println!("[调度器] 爬取失败: {}", e);
+                            bubble_msg = format!("失败：{}", e);
                             inner.progress.errors.push(e);
                         }
                     }
                     // 通知前端刷新 lastCrawlTime 等设置
                     let _ = app_clone.emit("crawler-finished", ());
+                    // 弹 app 顶层气泡
+                    crate::plugin::emit_app_bubble(&app_clone, "arXiv 爬取完成", &bubble_msg, Some("/articles"));
                     // Always sleep after a crawl attempt so the loop doesn't tight-loop on failure.
                     // The next iteration will re-read `lastCrawlTime` from settings (which was
                     // updated by the engine on success) and compute the correct wait duration.

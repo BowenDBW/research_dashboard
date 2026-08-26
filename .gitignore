@@ -34,3 +34,6 @@ temp
 # Editor/IDE temp files
 *.tmp.*
 *.tmp
+
+# 插件源码（本地专用，不纳入版本管理、不打进 app 包）
+.plugins/

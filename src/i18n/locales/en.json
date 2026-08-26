@@ -455,6 +455,12 @@
     "loadFailed": "Plugin failed to load: {{reason}}",
     "noPage": "This plugin has no standalone page"
   },
+  "pluginNotification": {
+    "title": "Plugin notification",
+    "view": "View",
+    "details": "View details",
+    "gotIt": "Got it"
+  },
   "manualAdd": {
     "title": "Add Article Manually",
     "arxivSection": "Fetch from arXiv",

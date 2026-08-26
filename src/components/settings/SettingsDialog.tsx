@@ -68,6 +68,7 @@ import { open as showOpenDialog, save as showSaveDialog } from '@tauri-apps/plug
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { useGmailStore } from '../../stores/useGmailStore';
 import { usePluginStore } from '../../stores/usePluginStore';
+import { PluginIcon } from '../plugin/PluginIcon';
 import { PluginSettings } from './PluginSettings';
 import { useThemeMode, ThemePreference } from '../../app/ThemeProvider';
 import { useLanguageStore } from '../../stores/useLanguageStore';
@@ -242,7 +243,7 @@ export const SettingsDialog = ({ open, onClose }: SettingsDialogProps) => {
         .map((p) => ({
           id: `plugin-${p.id}`,
           label: p.name,
-          icon: <ExtensionIcon fontSize="small" sx={{ color: 'primary.main' }} />,
+          icon: <PluginIcon plugin={p} />,
         })),
     },
     { id: 'data', label: t('settings.data'), icon: <FileCopyIcon fontSize="small" /> },

@@ -85,6 +85,7 @@ import { CategorySelectDialog } from '../common/CategorySelectDialog';
 import { FavoriteItem, Article, HeatmapCell } from '../../types';
 import { MonthlyHeatmap } from '../stats/MonthlyHeatmap';
 import { useTranslation } from 'react-i18next';
+import { PluginIcon } from '../plugin/PluginIcon';
 
 interface RightToolbarProps {
   open: boolean;
@@ -338,7 +339,7 @@ export const RightToolbar = ({ open, onToggle }: RightToolbarProps) => {
     const plugin = plugins.find((p) => p.id === id);
     if (plugin) {
       return {
-        icon: <ExtensionIcon fontSize="small" sx={{ color: 'primary.main' }} />,
+        icon: <PluginIcon plugin={plugin} />,
         label: plugin.name,
         route: plugin.hasPage ? `/plugins/${plugin.id}` : undefined,
       };
@@ -1138,7 +1139,7 @@ export const RightToolbar = ({ open, onToggle }: RightToolbarProps) => {
       return (
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', pr: 1 }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
-            <ExtensionIcon fontSize="small" sx={{ color: 'primary.main' }} />
+            <PluginIcon plugin={plugin} size={16} />
             <Typography variant="subtitle2" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {plugin.name}
             </Typography>

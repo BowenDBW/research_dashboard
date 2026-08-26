@@ -1,4 +1,40 @@
 
+## Research Dashboard V0.1.4
+
+### What's Changed 🚀
+* **Plugins can now run in the background (worker):**
+    * A plugin can declare `"worker": "worker.html"` in `plugin.json`. The app then keeps a hidden window (`plugin-worker-<id>`) running for it even when the plugin page isn't open, so it can crawl / poll on a schedule.
+    * A built-in scheduler ticks every plugin worker on startup (≈5s) and then every ~20 min (`plugin-tick`). Whether to actually run is decided by each plugin itself (e.g. read its own last-run time + a 1/3/7-day interval), so different plugins can use different cadences.
+    * Workers use a dedicated bridge (`rdp://core/worker-bridge.js`) that talks to app commands directly (no React relay) and adds `RdPlugin.onTick(fn)`.
+* **Plugins can notify at the top level of the app (dialog / bubble):**
+    * `RdPlugin.notify({ title, body, kind, ... })` shows an app-level alert from any plugin (typically its background worker):
+        * `kind: 'dialog'` → a modal dialog that **requires a click to confirm** ("知道了" / "查看详情", which jumps to the plugin page).
+        * `kind: 'bubble'` → an auto-dismissing snackbar (**no confirmation needed**, with a "View" action).
+    * Multiple changes from one crawl are grouped into a single notification. The backend honors `settings.notifyEnabled = false` in the plugin's `plugin.json` as a master switch.
+* **New plugin bridge APIs:** `RdPlugin.open(url)` (open links in the system browser), `RdPlugin.log(msg)` (forward worker/page logs to the app output), `RdPlugin.updateSettings(settings)` (write scalar settings back to the plugin's `plugin.json`), `RdPlugin.pluginId`.
+* **Fixed `RdPlugin.data.read/write` for all plugins:** the bridge now passes `pluginId` to `plugin_read_file` / `plugin_write_file` (the calls previously failed with "missing required key pluginId").
+* **Plugins now show their own icon in the app:** the right-sidebar thumbnail, the Settings → Plugins sub-item, and the plugin page header render the plugin's own `icon.svg` (read via `rdp://<id>/icon`), falling back to a generic extension icon when missing/broken.
+* **arXiv crawler & Gmail sync now pop a bubble when they finish:** scheduled (and manual) runs show an app-top bubble with the result summary (articles saved / emails processed / errors), with a shortcut to Articles or Daily Recommendations; failures are notified too.
+
+---
+
+### 更新日志 🚀
+* **插件现在可以后台运行（worker）：**
+    * 插件可在 `plugin.json` 声明 `"worker": "worker.html"`，app 会为它常驻一个隐藏窗口（`plugin-worker-<id>`），即使插件页面没打开也能定时爬取/轮询。
+    * 内置调度器在启动后（约 5 秒）及每约 20 分钟向每个 worker 发一次 `plugin-tick`；是否真正执行由插件自己判断（读自己的上次运行时间 + 1/3/7 天间隔），不同插件可用不同节奏。
+    * worker 使用专用桥 `rdp://core/worker-bridge.js`，直接调用 app 命令（不经 React 转发），并新增 `RdPlugin.onTick(fn)`。
+* **插件可以在 app 顶层弹提醒（对话窗 / 气泡）：**
+    * `RdPlugin.notify({ title, body, kind, ... })` 让任意插件（通常是后台 worker）在 app 顶层弹提醒：
+        * `kind: 'dialog'` → 模态对话框，**需点击确认**（"知道了"/"查看详情"，详情会跳到插件页面）。
+        * `kind: 'bubble'` → 自动消失的气泡（**无需确认**，带"查看"按钮）。
+    * 一次爬取的多条变更合并为一条提醒；后端会尊重插件 `plugin.json` 里的 `settings.notifyEnabled = false` 作为总开关。
+* **新增插件桥接口：** `RdPlugin.open(url)`（用系统浏览器打开链接）、`RdPlugin.log(msg)`（把 worker/页面日志转发到 app 输出）、`RdPlugin.updateSettings(settings)`（把标量设置写回插件 `plugin.json`）、`RdPlugin.pluginId`。
+* **修复所有插件的 `RdPlugin.data.read/write`：** 桥现在会把 `pluginId` 传给 `plugin_read_file` / `plugin_write_file`（此前调用会报 "missing required key pluginId"）。
+* **插件现在可以在 app 里显示自己的图标：** 右边栏插件缩略图、设置 → 插件的二级子项、插件页面顶栏都会渲染插件自己的 `icon.svg`（经 `rdp://<id>/icon` 读取），缺失或加载失败时回退到通用扩展图标。
+* **arXiv 爬虫与 Gmail 同步完成时也会弹气泡：** 定时（及手动）运行结束后会在 app 顶层弹气泡显示结果摘要（新增篇数 / 处理邮件数 / 错误），带跳转到文章库或每日推荐的快捷入口；失败也会提醒。
+
+---
+
 ## Research Dashboard V0.1.3
 
 ### What's Changed 🚀

@@ -16,6 +16,7 @@ import { useTranslation } from 'react-i18next';
 import { usePluginStore } from '../../stores/usePluginStore';
 import { useLanguageStore } from '../../stores/useLanguageStore';
 import { useThemeMode } from '../../app/ThemeProvider';
+import { PluginIcon } from '../../components/plugin/PluginIcon';
 
 /**
  * 插件页：在 iframe 里加载插件的独立前端（rdp://<pluginId>/<entry>）。
@@ -104,7 +105,13 @@ export const PluginPage = () => {
           <IconButton onClick={() => navigate(-1)} size="small" sx={{ mr: 1 }}>
             <ArrowBackIcon />
           </IconButton>
-          <ExtensionIcon sx={{ mr: 1, color: 'primary.main' }} fontSize="small" />
+          {plugin ? (
+            <Box sx={{ mr: 1, display: 'flex' }}>
+              <PluginIcon plugin={plugin} />
+            </Box>
+          ) : (
+            <ExtensionIcon sx={{ mr: 1, color: 'primary.main' }} fontSize="small" />
+          )}
           {plugin ? (
             <>
               <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>

@@ -5,6 +5,7 @@ import { SideDrawer } from './SideDrawer';
 import { RightToolbar } from './RightToolbar';
 import { SettingsDialog } from '../settings/SettingsDialog';
 import { ManualAddDialog } from '../article/ManualAddDialog';
+import { PluginNotificationCenter } from '../plugin/PluginNotificationCenter';
 
 export const AppShell = () => {
   const theme = useTheme();
@@ -44,6 +45,9 @@ export const AppShell = () => {
       {/* Dialogs */}
       <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
       <ManualAddDialog open={manualAddOpen} onClose={() => setManualAddOpen(false)} />
+
+      {/* 插件通知中心：监听 plugin-notification，在 app 顶层弹对话窗/气泡 */}
+      <PluginNotificationCenter />
     </Box>
   );
 };

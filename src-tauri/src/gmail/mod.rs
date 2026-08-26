@@ -6,7 +6,7 @@ pub mod client;
 pub mod parser;
 
 use std::sync::{Arc, Mutex};
-use tauri::State;
+use tauri::{AppHandle, State};
 use serde::{Deserialize, Serialize};
 use crate::AppState;
 use crate::models::*;
@@ -586,6 +586,7 @@ pub async fn gmail_logout() -> Result<(), String> {
 /// progress is published to the shared `GmailSyncHandle`.
 #[tauri::command]
 pub async fn gmail_sync(
+    app: AppHandle,
     state: State<'_, Arc<AppState>>,
     client_id: String,
     client_secret: String,
@@ -604,6 +605,7 @@ pub async fn gmail_sync(
 
     let handle_clone = handle.clone();
     let db_pool = state.db_pool.clone();
+    let app_clone = app.clone();
 
     tokio::spawn(async move {
         println!("[Gmail] 手动同步已启动, 正在后台执行 run_sync...");
@@ -611,19 +613,30 @@ pub async fn gmail_sync(
         match result {
             Ok((total, processed, articles)) => {
                 let error_count = handle_clone.status().errors.len();
-                let msg = if handle_clone.is_cancelled() {
-                    format!("同步已取消: 已处理 {}/{} 封邮件, 提取 {} 篇论文", processed, total, articles)
+                let (msg, detail) = if handle_clone.is_cancelled() {
+                    (
+                        format!("同步已取消: 已处理 {}/{} 封邮件, 提取 {} 篇论文", processed, total, articles),
+                        format!("已取消：处理 {}/{} 封，提取 {} 篇", processed, total, articles),
+                    )
                 } else if error_count > 0 {
-                    format!("同步完成: 处理 {}/{} 封邮件, 提取 {} 篇论文 ({} 个错误)", processed, total, articles, error_count)
+                    (
+                        format!("同步完成: 处理 {}/{} 封邮件, 提取 {} 篇论文 ({} 个错误)", processed, total, articles, error_count),
+                        format!("处理 {}/{} 封，提取 {} 篇（{} 个错误）", processed, total, articles, error_count),
+                    )
                 } else {
-                    format!("同步完成: 处理 {}/{} 封邮件, 提取 {} 篇论文", processed, total, articles)
+                    (
+                        format!("同步完成: 处理 {}/{} 封邮件, 提取 {} 篇论文", processed, total, articles),
+                        format!("处理 {}/{} 封，提取 {} 篇", processed, total, articles),
+                    )
                 };
                 println!("[Gmail] {}", msg);
                 handle_clone.finish(msg);
+                crate::plugin::emit_app_bubble(&app_clone, "Gmail 同步完成", &detail, Some("/daily"));
             }
             Err(e) => {
                 println!("[Gmail] 同步失败: {}", e);
                 handle_clone.finish(format!("同步失败: {}", e));
+                crate::plugin::emit_app_bubble(&app_clone, "Gmail 同步失败", &format!("失败：{}", e), Some("/daily"));
             }
         }
     });
@@ -659,7 +672,7 @@ pub async fn gmail_sync_stop(
 /// Reads syncIntervalHours from settings and runs sync at that interval.
 /// The scheduler reuses `run_sync` and publishes progress to the shared handle,
 /// so scheduled syncs are also visible in the UI.
-pub fn start_gmail_scheduler(db_pool: crate::dao::DbPool, handle: GmailSyncHandle) {
+pub fn start_gmail_scheduler(db_pool: crate::dao::DbPool, handle: GmailSyncHandle, app: AppHandle) {
     std::thread::spawn(move || {
         let rt = tokio::runtime::Runtime::new().expect("Failed to create Gmail scheduler runtime");
         rt.block_on(async move {
@@ -741,17 +754,19 @@ pub fn start_gmail_scheduler(db_pool: crate::dao::DbPool, handle: GmailSyncHandl
                 let result = run_sync(&db_pool, &client_id, &client_secret, &handle, None).await;
                 match result {
                     Ok((total, processed, articles)) => {
-                        let msg = if handle.is_cancelled() {
-                            format!("[Gmail调度器] 同步已取消: 处理 {}/{} 封, 提取 {} 篇", processed, total, articles)
+                        let detail = if handle.is_cancelled() {
+                            format!("同步已取消: 处理 {}/{} 封, 提取 {} 篇", processed, total, articles)
                         } else {
-                            format!("[Gmail调度器] 同步完成: 处理 {}/{} 封, 提取 {} 篇", processed, total, articles)
+                            format!("处理 {}/{} 封, 提取 {} 篇", processed, total, articles)
                         };
-                        println!("{}", msg);
-                        handle.finish(msg);
+                        println!("[Gmail调度器] {}", detail);
+                        handle.finish(detail.clone());
+                        crate::plugin::emit_app_bubble(&app, "Gmail 同步完成", &detail, Some("/daily"));
                     }
                     Err(e) => {
                         println!("[Gmail调度器] 同步失败: {}", e);
                         handle.finish(format!("同步失败: {}", e));
+                        crate::plugin::emit_app_bubble(&app, "Gmail 同步失败", &format!("失败：{}", e), Some("/daily"));
                     }
                 }
 
