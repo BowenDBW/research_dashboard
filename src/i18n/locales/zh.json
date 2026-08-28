@@ -40,7 +40,7 @@
     "paperSearch": "论文搜索",
     "articleSummary": "文章总结",
     "aiChat": "一起读",
-    "aiSearchRecommend": "BM25检索",
+    "aiSearchRecommend": "文章检索",
     "chapterSummary": "文章总结"
   },
   "homePage": {
@@ -55,8 +55,8 @@
       "tryAsk": "试试问："
     },
     "aiSearch": {
-      "title": "BM25 论文检索",
-      "description": "输入您的研究需求，AI 提取检索关键词后对库内论文做 BM25 检索，按相关度和时效排序；点击结果可阅读、收藏",
+      "title": "文章检索",
+      "description": "输入您的研究需求，AI 提取检索关键词后在库内文章中检索，按相关度和时效排序；点击结果可阅读、收藏",
       "trySearch": "试试搜索："
     },
     "chapterSummary": {

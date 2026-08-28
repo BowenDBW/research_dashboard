@@ -40,7 +40,7 @@
     "paperSearch": "Paper Search",
     "articleSummary": "Article Summary",
     "aiChat": "Read Together",
-    "aiSearchRecommend": "BM25 Search",
+    "aiSearchRecommend": "Article Search",
     "chapterSummary": "Article Summary"
   },
   "homePage": {
@@ -55,8 +55,8 @@
       "tryAsk": "Try asking:"
     },
     "aiSearch": {
-      "title": "BM25 Paper Search",
-      "description": "Describe your research needs, AI extracts search keywords and runs BM25 retrieval over library papers, ranked by relevance and recency; click a result to read or favorite it",
+      "title": "Article Search",
+      "description": "Describe your research needs; AI extracts search keywords and retrieves relevant articles from your library, ranked by relevance and recency; click a result to read or favorite it",
       "trySearch": "Try searching:"
     },
     "chapterSummary": {
