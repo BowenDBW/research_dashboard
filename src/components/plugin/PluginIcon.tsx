@@ -24,7 +24,7 @@ export function PluginIcon({ plugin, size = 18 }: { plugin: PluginInfo; size?: n
   }
   return (
     <img
-      src={`rdp://${plugin.id}/${iconName}`}
+      src={`${plugin.urlBase || `rdp://${plugin.id}`}/${iconName}`}
       alt=""
       width={size}
       height={size}

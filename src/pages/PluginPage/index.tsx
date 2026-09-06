@@ -36,7 +36,8 @@ export const PluginPage = () => {
 
   const plugin = plugins.find((p) => p.id === pluginId);
   const entry = plugin?.entry || 'page/index.html';
-  const src = plugin ? `rdp://${plugin.id}/${entry}` : '';
+  // 用后端给的 urlBase 拼完整 URL（Windows 上是 wry workaround 的 http://rdp.<id> 形式）
+  const src = plugin?.urlBase ? `${plugin.urlBase}/${entry}` : '';
 
   // 插件 iframe -> 受控插件 API 的 postMessage 桥
   useEffect(() => {

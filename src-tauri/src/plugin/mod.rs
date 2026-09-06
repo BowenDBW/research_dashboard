@@ -34,8 +34,26 @@ pub struct PluginInfo {
     /// 插件配置项（plugin.json 的一级键 "settings" 下的键值对），设置界面可编辑
     pub settings: Option<serde_json::Value>,
     pub dir: String,
+    /// 插件资源 URL 前缀：前端用它拼页面/图标等完整 URL。
+    /// macOS/Linux 是 `rdp://<id>`；Windows 因 WebView2 不支持非标准协议，
+    /// wry 会把 `rdp://<id>` 伪装成 `http://rdp.<id>` 才能被拦截还原，所以前缀用合成形式。
+    pub url_base: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub load_error: Option<String>,
+}
+
+/// 插件资源的 URL 前缀（页面/图标/任意资源都用它拼完整 URL）。
+/// 注意：合成形式基于 wry 的 workaround（use_https_scheme=false 时为 http；
+/// 若日后开启 useHttpsScheme，这里要同步改成 https://rdp.<id>）。
+fn plugin_rdp_base(id: &str) -> String {
+    #[cfg(target_os = "windows")]
+    {
+        format!("http://rdp.{id}")
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        format!("rdp://{id}")
+    }
 }
 
 impl PluginInfo {
@@ -101,6 +119,7 @@ fn scan_plugin(dir: &Path) -> PluginInfo {
                 return Err(format!("worker 入口文件 {} 不存在", worker));
             }
         }
+        let url_base = Some(plugin_rdp_base(&id));
         Ok(PluginInfo {
             id,
             name: meta.name,
@@ -113,6 +132,7 @@ fn scan_plugin(dir: &Path) -> PluginInfo {
             worker: meta.worker,
             settings: meta.settings,
             dir: dir_str.clone(),
+            url_base,
             load_error: None,
         })
     };
@@ -131,6 +151,7 @@ fn scan_plugin(dir: &Path) -> PluginInfo {
             worker: None,
             settings: None,
             dir: dir_str,
+            url_base: None,
             load_error: Some(e),
         },
     }
@@ -680,6 +701,11 @@ pub fn handle_rdp_request(request: tauri::http::Request<Vec<u8>>) -> tauri::http
     } else if plugin_id == "core" {
         return tauri::http::Response::builder()
             .status(404).body(Vec::new()).unwrap_or_default();
+    } else if path.ends_with("rdp-worker-bridge.js") {
+        // 保留路径分发内置桥（相对路径引用，Windows 上才能加载，见 plugin_rdp_base 注释）
+        WORKER_BRIDGE_JS.as_bytes().to_vec()
+    } else if path.ends_with("rdp-bridge.js") {
+        BRIDGE_JS.as_bytes().to_vec()
     } else {
         match read_plugin_file(&plugin_id, &path) {
             Ok(b) => b,
@@ -703,8 +729,13 @@ pub const BRIDGE_JS: &str = r#"
   if (window.RdPlugin) return;
   var pending = {};
   var seq = 0;
-  // 插件 id：rdp://<pluginId>/... 的 host
-  var PLUGIN_ID = (window.location && window.location.host) || '';
+  // 插件 id：rdp://<pluginId>/... 的 host。
+  // Windows 上 wry 把页面伪装成 http://rdp.<pluginId>/...，host 带 "rdp." 前缀要剥掉。
+  var PLUGIN_ID = (function () {
+    var h = (window.location && window.location.host) || '';
+    if (h.indexOf('rdp.') === 0) h = h.slice(4);
+    return h;
+  })();
   // app 主题/语言上下文（由 app 通过 rdp-context 消息推送，供插件适配明暗主题与 i18n）
   var _ctx = { theme: 'light', lang: 'zh' };
   var _ctxListeners = [];
@@ -770,8 +801,13 @@ pub const WORKER_BRIDGE_JS: &str = r#"
     console.error('[worker-bridge] 缺少 __TAURI_INTERNALS__，后台 worker 无法调用 app 接口');
     return;
   }
-  // rdp://<pluginId>/... 的 host 就是插件 id
-  var PLUGIN_ID = window.__RDP_PLUGIN_ID__ || (window.location && window.location.host) || '';
+  // rdp://<pluginId>/... 的 host 就是插件 id。
+  // Windows 上 wry 把页面伪装成 http://rdp.<pluginId>/...，host 带 "rdp." 前缀要剥掉。
+  var PLUGIN_ID = window.__RDP_PLUGIN_ID__ || (function () {
+    var h = (window.location && window.location.host) || '';
+    if (h.indexOf('rdp.') === 0) h = h.slice(4);
+    return h;
+  })();
   window.__RDP_PLUGIN_ID__ = PLUGIN_ID;
 
   function invoke(cmd, args) {
@@ -844,6 +880,16 @@ mod tests {
         assert!(broken_p.load_error.is_some(), "缺 plugin.json 应记 load_error");
 
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn rdp_base_platform_contract() {
+        // Windows 必须用 wry workaround 的合成前缀，否则 rdp:// 绝对地址加载不出
+        let base = plugin_rdp_base("ccfddl");
+        #[cfg(target_os = "windows")]
+        assert_eq!(base, "http://rdp.ccfddl");
+        #[cfg(not(target_os = "windows"))]
+        assert_eq!(base, "rdp://ccfddl");
     }
 
     #[test]

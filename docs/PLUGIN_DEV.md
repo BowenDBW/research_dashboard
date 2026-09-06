@@ -50,10 +50,18 @@
 ```html
 <!DOCTYPE html><html><head><meta charset="utf-8"></head><body>
   <h1>我的插件</h1>
-  <script src="rdp://core/bridge.js"></script>
+  <script src="./rdp-bridge.js"></script>
   <script src="./app.js"></script>   <!-- 相对路径即可，多文件互相引用 -->
 </body></html>
 ```
+
+> **桥必须用相对路径引用**（`./rdp-bridge.js`，app 在保留路径上分发内置桥）。
+> 不要写绝对地址 `rdp://core/bridge.js`：macOS(WKWebView) 能用，但 Windows(WebView2)
+> 不支持非标准协议，wry 把页面伪装成 `http://rdp.<id>/...`，绝对 `rdp://` 子资源
+> 加载不出来，桥会缺失、页面直接不可用。相对路径在两端都能正确解析。
+>
+> **保留文件名**：`rdp-bridge.js` 与 `rdp-worker-bridge.js` 由 app 分发内置桥，
+> 插件不要放同名文件。
 
 页面在独立 iframe 里运行，**与 app 隔离**：页面崩了不影响 app；也碰不到 app 的
 其它文件/窗口。页面可自行 `fetch` 外部 API（跨域受限时用 `RdPlugin.http`）。
@@ -82,9 +90,10 @@
 若插件需要**离开页面仍定时干活**（如定期爬数据、检测变化后提醒），声明 `plugin.json` 的 `"worker"`：
 
 - 入口是**一个 HTML 文件**（相对插件目录，如 `worker.html`），app 启动 / 定期扫描时会为它建一个
-  **隐藏窗口**（label `plugin-worker-<id>`）常驻后台，页面写法和普通页面一致，但桥要用 worker 专用桥：
+  **隐藏窗口**（label `plugin-worker-<id>`）常驻后台，页面写法和普通页面一致，但桥要用 worker 专用桥
+  （同样**相对路径**引用，绝对 `rdp://core/worker-bridge.js` 在 Windows 上加载不出）：
   ```html
-  <script src="rdp://core/worker-bridge.js"></script>
+  <script src="./rdp-worker-bridge.js"></script>
   <script src="./worker.js"></script>
   ```
 - worker 页面运行在隐藏窗口顶层，`RdPlugin` 的调用**直接走 app 命令**（不经 React 转发），
@@ -129,7 +138,8 @@ app 把当前主题与语言通过 `rdp-context` 消息推送给插件页面（i
 
 - 配置：`plugin.json` 的 `settings`（设置界面改的就是它）。
 - 运行数据：`data/`，经 `RdPlugin.data.*`（相对路径，越界被拒）。
-- 页面/语言/图标等资源：插件文件夹内，`rdp://<id>/…` 任意文件按需取。
+- 页面/语言/图标等资源：插件文件夹内，用 app 提供的 `PluginInfo.urlBase` 拼 URL
+  （macOS/Linux 是 `rdp://<id>`，Windows 是 `http://rdp.<id>`），后面接插件内相对路径，如 `${urlBase}/i18n/zh.json`。
 - 唯一在 app 层保存的是**右边栏面板位置/隐藏状态**（`layout.json`，属于 UI 布局而非插件数据，内置面板也存这里）。
 
 **权限边界**：
@@ -154,7 +164,7 @@ app 把当前主题与语言通过 `rdp-context` 消息推送给插件页面（i
 `demo/page/index.html`：
 ```html
 <!DOCTYPE html><html><head><meta charset="utf-8"></head><body>
-  <script src="rdp://core/bridge.js"></script>
+  <script src="./rdp-bridge.js"></script>
   <script>
     RdPlugin.db.query('SELECT COUNT(*) AS total FROM papers')
       .then(r => document.body.innerText = '文章总数: ' + r[0].total)
